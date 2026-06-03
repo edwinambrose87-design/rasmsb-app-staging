@@ -193,13 +193,13 @@ export default function IncidentReportPage() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
             <div style={{ backgroundColor: 'white', padding: '8px 16px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '15px', height: '46px', boxSizing: 'border-box' }}>
-              <div onClick={() => document.getElementById('inc-start-picker')?.showPicker()} style={{ display: 'flex', flexDirection: 'column', gap: '2px', position: 'relative', cursor: 'pointer' }}>
+              <div onClick={() => (document.getElementById('inc-start-picker') as HTMLInputElement)?.showPicker()} style={{ display: 'flex', flexDirection: 'column' }}>
                 <label style={{ fontSize: '8px', fontWeight: 'bold', color: '#64748b', letterSpacing: '0.5px' }}>START DATE</label>
                 <span style={{ color: '#1e3a8a', fontWeight: '600', fontSize: '12px' }}>{formatDisplayDate(startDate)}</span>
                 <input id="inc-start-picker" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
               </div>
               <div style={{ color: '#cbd5e1', fontWeight: 'bold', fontSize: '11px' }}>➔</div>
-              <div onClick={() => document.getElementById('inc-end-picker')?.showPicker()} style={{ display: 'flex', flexDirection: 'column', gap: '2px', position: 'relative', cursor: 'pointer' }}>
+              <div onClick={() => (document.getElementById('inc-end-picker') as HTMLInputElement)?.showPicker()} style={{ display: 'flex', flexDirection: 'column', gap: '2px', position: 'relative', cursor: 'pointer' }}>
                 <label style={{ fontSize: '8px', fontWeight: 'bold', color: '#64748b', letterSpacing: '0.5px' }}>END DATE</label>
                 <span style={{ color: '#1e3a8a', fontWeight: '600', fontSize: '12px' }}>{formatDisplayDate(endDate)}</span>
                 <input id="inc-end-picker" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
