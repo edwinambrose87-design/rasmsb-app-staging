@@ -7,9 +7,11 @@ export default function AttendanceTile() {
   const [showCamera, setShowCamera] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
   
-  // New States for Success Handling and Photo Previews
   const [capturedImageData, setCapturedImageData] = useState<string | null>(null)
   const [isSuccessState, setIsSuccessState] = useState(false)
+  
+  // 🔔 NEW: Elegant custom in-app notification banner state
+  const [showCustomToast, setShowCustomToast] = useState(false)
   
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -28,7 +30,6 @@ export default function AttendanceTile() {
     return () => clearInterval(interval)
   }, [isClockedIn])
 
-  // CLEANUP CAMERA PORTS ON CLOSE
   const stopCameraStream = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop())
@@ -40,7 +41,6 @@ export default function AttendanceTile() {
     setIsSuccessState(false)
   }
 
-  // 📸 REQUEST NATIVE DEVICE FRONT SELFIE CAMERA PORTAL
   const startCameraStream = async () => {
     setShowCamera(true)
     setCameraError(null)
@@ -61,7 +61,6 @@ export default function AttendanceTile() {
     }
   }
 
-  // 📝 CAPTURE SNAPSHOT FRAME, RUN PREVIEW TIMELINE, AND SET SUCCESS STATE
   const handleCaptureSnapshot = () => {
     if (!videoRef.current || !canvasRef.current) return
 
@@ -70,37 +69,44 @@ export default function AttendanceTile() {
     const context = canvas.getContext('2d')
 
     if (context) {
-      // Synchronize canvas processing grids to video feed dimensions
       canvas.width = video.videoWidth || 640
       canvas.height = video.videoHeight || 480
       
-      // Mirror frame tracking adjustments to align to web component transformations
       context.translate(canvas.width, 0)
       context.scale(-1, 1)
-      
       context.drawImage(video, 0, 0, canvas.width, canvas.height)
       
-      // Convert current vector data into high-vibrancy base64 preview asset
       const base64Data = canvas.toDataURL('image/jpeg')
       setCapturedImageData(base64Data)
       setIsSuccessState(true)
 
-      // Turn off active camera hardware capture modules right away
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop())
         streamRef.current = null
       }
 
-      // Execute 3-second display countdown block before changing the tile status
+      // 📝 RE-ENGINEERED: Trigger beautiful dynamic custom notification banner instead of old alert()
       setTimeout(() => {
-        alert("Attendance successfully updated.")
         setIsClockedIn(true)
         setShowCamera(false)
         setCapturedImageData(null)
         setIsSuccessState(false)
+        
+        // Open custom toast banner dynamically
+        setShowCustomToast(true)
       }, 3000)
     }
   }
+
+  // Auto-dismiss the custom toast banner after 4 seconds
+  useEffect(() => {
+    if (showCustomToast) {
+      const timer = setTimeout(() => {
+        setShowCustomToast(false)
+      }, 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [showCustomToast])
 
   const handleClockOutSequence = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -118,8 +124,33 @@ export default function AttendanceTile() {
 
   return (
     <>
-      {/* Hidden processing core canvas needed for frame data conversion */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+      {/* 🔥 NEW: PREMIUM CUSTOM TOAST NOTIFICATION LAYER */}
+      <div style={{
+        position: 'fixed',
+        top: '20px',
+        left: '50%',
+        transform: showCustomToast ? 'translateY(0) translateX(-50%)' : 'translateY(-100px) translateX(-50%)',
+        width: 'calc(100% - 40px)',
+        maxWidth: '350px',
+        backgroundColor: '#10b981',
+        borderRadius: '16px',
+        padding: '16px 20px',
+        boxSizing: 'border-box',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '14px',
+        zIndex: 9999999,
+        boxShadow: '0 10px 25px -5px rgba(16, 185, 129, 0.4), 0 8px 10px -6px rgba(16, 185, 129, 0.2)',
+        transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+        opacity: showCustomToast ? 1 : 0
+      }}>
+        <div style={{ width: '28px', height: '28px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', color: '#ffffff', fontWeight: 'bold' }}>✓</div>
+        <div style={{ color: '#ffffff', fontSize: '14px', fontWeight: '700', letterSpacing: '0.2px' }}>
+          Attendance successfully updated.
+        </div>
+      </div>
 
       {/* COMPONENT INTERFACE TILES */}
       <div 
@@ -193,15 +224,14 @@ export default function AttendanceTile() {
           display: 'flex', 
           flexDirection: 'column', 
           alignItems: 'center', 
-          justifyContent: 'flex-start', // FIXED: Shifts the placement anchor toward the top boundary
-          padding: '60px 20px 20px 20px', // FIXED: Adds custom vertical offset to raise the card position cleanly
+          justifyContent: 'flex-start', 
+          padding: '60px 20px 20px 20px', 
           boxSizing: 'border-box', 
           fontFamily: 'system-ui, -apple-system, sans-serif' 
         }}>
           <div style={{ backgroundColor: '#ffffff', width: '100%', maxWidth: '390px', borderRadius: '24px', padding: '24px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '18px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              {/* FIXED: Dynamic updated tracking title */}
               <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '0.2px' }}>
                 RASMSB Attendance Verification
               </h4>
@@ -210,12 +240,10 @@ export default function AttendanceTile() {
               )}
             </div>
 
-            {/* VIDEO CAPTURE FEED / STATIC PREVIEW AREA */}
-            <div style={{ width: '100%', height: '270px', backgroundColor: '#0f172a', borderRadius: '16px', overflow: 'hidden', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', height: '270px', backgroundColor: '#0f172a', borderRadius: '16px', overflow: 'hidden', position: 'relative', boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.2)' }}>
               {cameraError ? (
                 <div style={{ color: '#f87171', fontSize: '12px', padding: '20px', textAlign: 'center', fontWeight: '600' }}>⚠️ {cameraError}</div>
               ) : capturedImageData ? (
-                /* FIXED: Displays frozen high-vibrancy capture picture data */
                 <img 
                   src={capturedImageData} 
                   alt="Captured Selfie" 
@@ -231,7 +259,6 @@ export default function AttendanceTile() {
                 />
               )}
 
-              {/* OVERLAY TIMER / ANIMATION FEEDBACK ON SUCCESS CAPTURE */}
               {isSuccessState && (
                 <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', backgroundColor: 'rgba(16, 185, 129, 0.9)', color: 'white', padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: 'bold', letterSpacing: '0.5px' }}>
                   Processing secure verification frames...
@@ -239,7 +266,6 @@ export default function AttendanceTile() {
               )}
             </div>
 
-            {/* PORT CONTROLS */}
             <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
               <button 
                 onClick={stopCameraStream}
