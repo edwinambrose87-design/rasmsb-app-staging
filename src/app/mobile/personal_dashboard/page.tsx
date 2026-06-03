@@ -1,6 +1,7 @@
 'use client'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useState, Suspense } from 'react'
+import AttendanceTile from './components/AttendanceTile'
 
 function PersonalDashboardContent() {
   const searchParams = useSearchParams()
@@ -28,7 +29,6 @@ function PersonalDashboardContent() {
     if (urlProject) {
       setSiteTitle(decodeURIComponent(urlProject).toUpperCase())
     }
-    // ✅ Stable list: We track only the raw text strings inside the search bar, keeping the array size perfectly constant!
   }, [searchParams, router])
 
   const handleTileNavigation = (routeTarget: string) => {
@@ -69,22 +69,11 @@ function PersonalDashboardContent() {
         </div>
       </div>
 
-      {/* 📱 ORIGINAL TILES WITH ICON BOXES RESTORED */}
+      {/* 📱 CORE GRID HUB WITH COMPONENT SEPARATION */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', maxWidth: '480px', margin: '0 auto' }}>
         
-        {/* TILE 1: ATTENDANCE */}
-        <div 
-          onClick={() => handleTileNavigation('attendance')}
-          style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '24px 12px', textAlign: 'center', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}
-        >
-          <div style={{ width: '52px', height: '52px', backgroundColor: '#eff6ff', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', border: '1px solid #bfdbfe' }}>
-            📅
-          </div>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', color: '#1e3a8a' }}>Attendance</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#64748b', lineHeight: '1.3' }}>Sign-In / Sign-Out Duty Shift</p>
-          </div>
-        </div>
+        {/* TILE 1: ATTENDANCE COMPONENT */}
+        <AttendanceTile />
 
         {/* TILE 2: START CLOCKING */}
         <div 
