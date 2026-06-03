@@ -1,7 +1,20 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import { createClient } from '@supabase/supabase-js'
 
-export default function AttendanceTile() {
+// Establish connection clients inside the child module layer
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+// Define properties structural contract to clear the layout build warning
+interface AttendanceTileProps {
+  guardId: string | null
+  projectId: string | null
+}
+
+export default function AttendanceTile({ guardId, projectId }: AttendanceTileProps) {
   const [isClockedIn, setIsClockedIn] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [showCamera, setShowCamera] = useState(false)
@@ -9,8 +22,6 @@ export default function AttendanceTile() {
   
   const [capturedImageData, setCapturedImageData] = useState<string | null>(null)
   const [isSuccessState, setIsSuccessState] = useState(false)
-  
-  // 🔔 NEW: Elegant custom in-app notification banner state
   const [showCustomToast, setShowCustomToast] = useState(false)
   
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -61,7 +72,8 @@ export default function AttendanceTile() {
     }
   }
 
-  const handleCaptureSnapshot = () => {
+  // 📝 CAPTURE SNAPSHOT AND WRITE TRANSACTION DIRECTLY TO THE DATABASE
+  const handleCaptureSnapshot = async () => {
     if (!videoRef.current || !canvasRef.current) return
 
     const video = videoRef.current
@@ -85,20 +97,35 @@ export default function AttendanceTile() {
         streamRef.current = null
       }
 
-      // 📝 RE-ENGINEERED: Trigger beautiful dynamic custom notification banner instead of old alert()
+      // 🛠️ LIVE DB INSERT OPERATION: Push raw session records up to Supabase
+      if (guardId) {
+        const { error: dbError } = await supabase
+          .from('guard_attendance')
+          .insert([
+            {
+              guard_id: guardId,
+              project_id: projectId || null,
+              selfie_url: base64Data, // Stores base64 stream image safely inside column text
+              status: 'CLOCKED_IN'
+            }
+          ])
+
+        if (dbError) {
+          console.error("Failed writing logs to guard_attendance table:", dbError)
+        }
+      }
+
+      // Transition layouts and present success toast badge
       setTimeout(() => {
         setIsClockedIn(true)
         setShowCamera(false)
         setCapturedImageData(null)
         setIsSuccessState(false)
-        
-        // Open custom toast banner dynamically
         setShowCustomToast(true)
       }, 3000)
     }
   }
 
-  // Auto-dismiss the custom toast banner after 4 seconds
   useEffect(() => {
     if (showCustomToast) {
       const timer = setTimeout(() => {
@@ -126,7 +153,7 @@ export default function AttendanceTile() {
     <>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-      {/* 🔥 NEW: PREMIUM CUSTOM TOAST NOTIFICATION LAYER */}
+      {/* PREMIUM CUSTOM TOAST NOTIFICATION LAYER */}
       <div style={{
         position: 'fixed',
         top: '20px',
@@ -142,7 +169,7 @@ export default function AttendanceTile() {
         alignItems: 'center',
         gap: '14px',
         zIndex: 9999999,
-        boxShadow: '0 10px 25px -5px rgba(16, 185, 129, 0.4), 0 8px 10px -6px rgba(16, 185, 129, 0.2)',
+        boxShadow: '0 10px 25px -5px rgba(16, 185, 129, 0.4)',
         transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
         opacity: showCustomToast ? 1 : 0
       }}>
