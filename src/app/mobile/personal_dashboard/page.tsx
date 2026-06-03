@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import AttendanceTile from './components/AttendanceTile'
 
-// Initialize a client-side Supabase connection portal for mobile lookups
+// Initialize our Supabase connection client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -13,7 +13,7 @@ const supabase = createClient(
 function PersonalDashboardContent() {
   const router = useRouter()
   
-  // Dynamic State Hook Management
+  // Dynamic State Management
   const [guardId, setGuardId] = useState<string | null>(null)
   const [guardName, setGuardName] = useState('Loading Officer...')
   const [siteTitle, setSiteTitle] = useState('LOADING ASSIGNED POST...')
@@ -23,63 +23,54 @@ function PersonalDashboardContent() {
 
   useEffect(() => {
     async function syncGuardDatabaseProfile() {
-      // 1. Verify user session state via Client Auth Layer
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      // 🕵️‍♂️ RE-ENGINEERED: Read the local token we saved during login instead of checking cloud email auth
+      const localGuardId = sessionStorage.getItem('active_guard_id')
       
-      if (authError || !user) {
-        console.error("Auth session expired or missing:", authError)
+      // Security Gate: If no token is found in the phone's memory, send them back to login
+      if (!localGuardId) {
+        console.warn("No active guard token found in session storage. Redirecting...")
         router.replace('/mobile')
         return
       }
 
       try {
-        // 2. Fetch the LIVE row inside the 'guards' directory linked to this auth user ID
+        // Fetch the LIVE database row for this guard using their unique ID token
         const { data: guardData, error: guardError } = await supabase
           .from('guards')
           .select('id, name, project_id')
-          .eq('id', user.id) // Assuming guard id matches authenticated user uuid
-          .single()
+          .eq('id', localGuardId)
+          .maybeSingle()
 
         if (guardError || !guardData) {
-          // Fallback check: look up by matching email metadata if id structure varies
-          const { data: profileFallback } = await supabase
-            .from('profiles')
-            .select('full_name, project_name')
-            .eq('id', user.id)
-            .single()
-            
-          if (profileFallback) {
-            setGuardName(profileFallback.full_name || 'Officer')
-            setSiteTitle((profileFallback.project_name || 'Main Post Office').toUpperCase())
-          } else {
-            setGuardName(user.email || 'Officer')
-            setSiteTitle('UNASSIGNED POST DUTY')
-          }
+          console.error("Guard profile not found in database:", guardError)
+          router.replace('/mobile')
           return
         }
 
-        // Save target references into react lifecycle states
+        // Save their profile details into our active app memory states
         setGuardId(guardData.id)
         setGuardName(guardData.name)
         setProjectId(guardData.project_id)
 
-        // 3. RELATIONAL JOIN LOOKUP: Fetch live project name directly from the projects table
+        // DYNAMIC SYNC: Look up their current project assignment straight from the projects table
         if (guardData.project_id) {
           const { data: projectData } = await supabase
             .from('projects')
             .select('name')
             .eq('id', guardData.project_id)
-            .single()
+            .maybeSingle()
 
           if (projectData?.name) {
             setSiteTitle(projectData.name.toUpperCase())
+          } else {
+            setSiteTitle('ASSIGNED POST NOT FOUND')
           }
         } else {
           setSiteTitle('UNASSIGNED POST DUTY')
         }
 
       } catch (err) {
-        console.error("Database connection failure:", err)
+        console.error("Database handshake failure:", err)
       }
     }
 
@@ -87,12 +78,11 @@ function PersonalDashboardContent() {
   }, [router])
 
   const handleTileNavigation = (routeTarget: string) => {
-    // Navigation payload safely updated to forward critical primary keys
     router.push(`/mobile/${routeTarget}?project_id=${projectId || ''}&guard_id=${guardId || ''}`)
   }
 
-  const handleSecureLogout = async () => {
-    await supabase.auth.signOut()
+  const handleSecureLogout = () => {
+    // Clear the local tokens out of memory upon signing out
     sessionStorage.clear()
     router.replace('/mobile')
   }
@@ -100,7 +90,7 @@ function PersonalDashboardContent() {
   return (
     <div style={{ backgroundColor: '#f5f7fa', minHeight: '100vh', width: '100vw', padding: '0 20px 30px 20px', boxSizing: 'border-box', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b', position: 'relative', overflowX: 'hidden' }}>
       
-      {/* 📱 TOP NAVIGATION HEADER FRAME */}
+      {/* 📱 TOP NAVIGATION HEADER BAR */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 4px 15px 4px', width: '100%', boxSizing: 'border-box' }}>
         <span style={{ fontSize: '22px', fontWeight: '900', color: '#1e3a8a', letterSpacing: '-0.5px' }}>RASMSB</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>

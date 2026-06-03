@@ -42,21 +42,24 @@ export default function MobileLoginPage() {
         }
       }
 
+      // 🔍 Query guards table directly using Staff ID / Name and custom password hash
       const { data: guardProfile } = await supabase
         .from('guards')
-        .select('name, app_password_hash, staff_id')
+        .select('id, name, app_password_hash, staff_id')
         .eq('app_password_hash', structuredPin)
         .or(`name.eq.${cleanRawInput},staff_id.eq.${cleanRawInput}`)
         .maybeSingle()
 
       if (guardProfile) {
-        const assignedSlug = 'villa-aman-condominium'
-        // ✅ Routes forward to the isolated dashboard sub-folder path
-        router.push(`/mobile/personal_dashboard?project=${assignedSlug}&guard=${guardProfile.name}`)
+        // 💾 Save the verified Guard ID to session storage so dashboard can read it without Auth User middleware
+        sessionStorage.setItem('active_guard_id', guardProfile.id)
+        
+        // ➔ Forward cleanly straight to personal dashboard folder path
+        router.push(`/mobile/personal_dashboard`)
         return
       }
 
-      setErrorMessage('Security Auth Failure: Invalid Credentials or Password Hash.')
+      setErrorMessage('Security Auth Failure: Invalid Credentials or Password.')
 
     } catch (err) {
       setErrorMessage('Network fault: Failed to handshake with security servers.')
@@ -72,16 +75,16 @@ export default function MobileLoginPage() {
           <span style={{ color: 'white', fontWeight: 'bold', fontSize: '24px' }}>RAS</span>
         </div>
         <h2 style={{ color: '#ffffff', margin: 0, fontSize: '24px', fontWeight: '800' }}>RASMSB MOBILE LINK</h2>
-        <p style={{ color: '#94a3b8', margin: '5px 0 0 0', fontSize: '13px' }}>ENTER GUARD USERNAME OR ASSIGNED TERMINAL KEY</p>
+        <p style={{ color: '#94a3b8', margin: '5px 0 0 0', fontSize: '13px' }}>ENTER GUARD STAFF ID OR ASSIGNED TERMINAL KEY</p>
       </div>
 
       <div style={{ backgroundColor: '#1e293b', borderRadius: '16px', width: '100%', maxWidth: '360px', padding: '30px', boxSizing: 'border-box', border: '1px solid #334155' }}>
         <form onSubmit={handleMobileLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold' }}>OFFICER USERNAME OR STAFF ID</label>
+            <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold' }}>OFFICER STAFF ID OR USERNAME</label>
             <input 
               type="text" 
-              placeholder="e.g. RAS-001 or TERM-VILLA-01"
+              placeholder="e.g. RAS-001"
               value={loginId}
               onChange={(e) => setLoginId(e.target.value)}
               disabled={isVerifying}
@@ -90,7 +93,7 @@ export default function MobileLoginPage() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold' }}>PASSWORD OR ACCESS PIN</label>
+            <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold' }}>PASSWORD / PASSCODE</label>
             <input 
               type="password" 
               placeholder="e.g. pass123"
