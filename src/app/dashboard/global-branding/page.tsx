@@ -139,7 +139,7 @@ export default function GlobalBrandingPage() {
 
       // Propagate configurations across live UI Context variables dynamically
       if (setBrandName) setBrandName(orgName)
-      if (setLogoUrl) setLogoUrl(logo)
+      if (setLogoUrl) setLogoUrl(logo || '')
 
       showToast('🚀 System UI assets published and synced successfully!', 'success')
     } catch (err: any) {
