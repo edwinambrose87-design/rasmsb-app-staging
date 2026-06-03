@@ -23,24 +23,6 @@ export default async function HomePage() {
     redirect('/login')
   }
 
-  // This part looks into your new 'profiles' table for your details
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
-
-  return (
-    <div style={{ padding: '50px', fontFamily: 'Arial' }}>
-      <h1>Rashid Azlan Security HQ</h1>
-      <p>Welcome back, <strong>{user.email}</strong></p>
-      
-      <div style={{ marginTop: '20px', padding: '20px', border: '1px solid #0070f3', borderRadius: '8px' }}>
-        <h3>User Profile Details:</h3>
-        <p>Name: {profile?.full_name || 'Not set yet'}</p>
-        <p>Role: {profile?.role || 'No role assigned'}</p>
-        <p>Project: {profile?.project_name || 'Main Office'}</p>
-      </div>
-    </div>
-  )
+  // Session verified -> Redirect directly to the main dashboard landing page
+  redirect('/dashboard')
 }
