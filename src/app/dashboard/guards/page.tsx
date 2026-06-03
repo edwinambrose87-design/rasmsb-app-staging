@@ -474,7 +474,7 @@ export default function GuardsDirectoryPage() {
                   </div>
                   <div>
                     <label style={labelStyle}>Default Shift Type</label>
-                    <select value={newGuardData.shift} onChange={(e) => setNewGuardData({...newGuardData, shift: e.target.value as 'DAY' | 'NIGHT'})} style={inputStyle}>
+                      <select value={newGuardData.shift} onChange={(e) => setNewGuardData({...newGuardData, shift: e.target.value as any})}>
                       <option value="DAY">☀️ Day Shift</option>
                       <option value="NIGHT">🌙 Night Shift</option>
                     </select>
