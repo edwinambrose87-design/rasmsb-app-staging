@@ -125,7 +125,7 @@ export default function GuardsDirectoryPage() {
       nationality: guard.nationality, 
       phone: guard.phone,
       assignedPost: guard.assignedPost,
-      shift: guard.shift, 
+      shift: (guard as any).shift,
       siteId: guard.siteId || 'UNASSIGNED',
       avatarSrc: guard.avatarSrc || ''
     })
@@ -180,7 +180,7 @@ export default function GuardsDirectoryPage() {
         nationality: newGuardData.nationality,
         phone: newGuardData.phone,
         post_zone: newGuardData.assignedPost,
-        shift_type: newGuardData.shift === 'NIGHT' ? 'Night' : 'Day',
+        shift_type: (newGuardData as any).shift === 'NIGHT' ? 'Night' : 'Day',
         project_id: newGuardData.siteId === 'UNASSIGNED' ? null : newGuardData.siteId,
         avatar_src: newGuardData.avatarSrc,
         duty_status: editingGuardId ? undefined : 'ON DUTY'
@@ -474,7 +474,7 @@ export default function GuardsDirectoryPage() {
                   </div>
                   <div>
                     <label style={labelStyle}>Default Shift Type</label>
-                    <select value={newGuardData.shift} onChange={(e) => setNewGuardData({...newGuardData, shift: e.target.value})} style={inputStyle}>
+                    <select value={newGuardData.shift} onChange={(e) => setNewGuardData({...newGuardData, shift: e.target.value as 'DAY' | 'NIGHT'})} style={inputStyle}>
                       <option value="DAY">☀️ Day Shift</option>
                       <option value="NIGHT">🌙 Night Shift</option>
                     </select>
