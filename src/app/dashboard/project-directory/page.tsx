@@ -269,7 +269,7 @@ export default function ProjectDirectoryPage() {
   const removeContact = (projectId: string, contactIdx: number) => {
     setProjectsPool(prev => prev.map(p => {
       if (p.id !== projectId) return p
-      const updatedContacts = p.contactsList.filter((_, idx) => idx !== contactIdx)
+      const updatedContacts = p.contactsList.filter((_: any, idx: any) => idx !== contactIdx)
       return { ...p, contactsList: updatedContacts }
     }))
   }
