@@ -4,7 +4,6 @@ import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import AttendanceTile from './components/AttendanceTile'
 
-// Initialize our Supabase connection client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -13,20 +12,16 @@ const supabase = createClient(
 function PersonalDashboardContent() {
   const router = useRouter()
   
-  // Dynamic State Management
   const [guardId, setGuardId] = useState<string | null>(null)
   const [guardName, setGuardName] = useState('Loading Officer...')
   const [siteTitle, setSiteTitle] = useState('LOADING ASSIGNED POST...')
   const [projectId, setProjectId] = useState<string | null>(null)
-  
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
   useEffect(() => {
     async function syncGuardDatabaseProfile() {
-      // 🕵️‍♂️ RE-ENGINEERED: Read the local token we saved during login instead of checking cloud email auth
       const localGuardId = sessionStorage.getItem('active_guard_id')
       
-      // Security Gate: If no token is found in the phone's memory, send them back to login
       if (!localGuardId) {
         console.warn("No active guard token found in session storage. Redirecting...")
         router.replace('/mobile')
@@ -34,7 +29,6 @@ function PersonalDashboardContent() {
       }
 
       try {
-        // Fetch the LIVE database row for this guard using their unique ID token
         const { data: guardData, error: guardError } = await supabase
           .from('guards')
           .select('id, name, project_id')
@@ -47,12 +41,10 @@ function PersonalDashboardContent() {
           return
         }
 
-        // Save their profile details into our active app memory states
         setGuardId(guardData.id)
         setGuardName(guardData.name)
         setProjectId(guardData.project_id)
 
-        // DYNAMIC SYNC: Look up their current project assignment straight from the projects table
         if (guardData.project_id) {
           const { data: projectData } = await supabase
             .from('projects')
@@ -62,8 +54,8 @@ function PersonalDashboardContent() {
 
           if (projectData?.name) {
             setSiteTitle(projectData.name.toUpperCase())
-          } else {
-            setSiteTitle('ASSIGNED POST NOT FOUND')
+            // Backwards compatibility for child steps tracking names
+            sessionStorage.setItem('ras_project_title', projectData.name)
           }
         } else {
           setSiteTitle('UNASSIGNED POST DUTY')
@@ -82,7 +74,6 @@ function PersonalDashboardContent() {
   }
 
   const handleSecureLogout = () => {
-    // Clear the local tokens out of memory upon signing out
     sessionStorage.clear()
     router.replace('/mobile')
   }
@@ -123,11 +114,17 @@ function PersonalDashboardContent() {
         </div>
       </div>
 
-      {/* 📱 UPGRADED HIGH-VIBRANCY GRID SYSTEM */}
+      {/* 📱 CORE TILES GRID */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', maxWidth: '480px', margin: '0 auto' }}>
         
-        {/* Pass downstream references cleanly so attendance row writes execute correctly */}
-        <AttendanceTile guardId={guardId} projectId={projectId} />
+        {/* Render child component cleanly checking local state tokens */}
+        {guardId ? (
+          <AttendanceTile guardId={guardId} projectId={projectId} />
+        ) : (
+          <div style={{ backgroundColor: '#ffffff', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', border: '1px solid #eef2f6' }}>
+            <span style={{ fontSize: '12px', color: '#64748b' }}>Syncing Module...</span>
+          </div>
+        )}
 
         {/* TILE 2: START CLOCKING */}
         <div 

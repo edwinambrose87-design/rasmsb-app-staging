@@ -2,13 +2,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-// Establish connection clients inside the child module layer
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// Define properties structural contract to clear the layout build warning
 interface AttendanceTileProps {
   guardId: string | null
   projectId: string | null
@@ -23,12 +21,17 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
   const [capturedImageData, setCapturedImageData] = useState<string | null>(null)
   const [isSuccessState, setIsSuccessState] = useState(false)
   const [showCustomToast, setShowCustomToast] = useState(false)
+  const [toastMessage, setToastMessage] = useState('Attendance successfully updated.')
+  const [toastColor, setToastColor] = useState('#10b981') // Green for success, Red for signout
+
+  // 🔔 NEW: Custom Modern In-App Sign-Out Confirmation Overlay state
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false)
   
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
-  // ⏰ LIVE DUTY TIMER LOOP TRACKER
+  // TIMER COUNTER MONITOR
   useEffect(() => {
     let interval: NodeJS.Timeout
     if (isClockedIn) {
@@ -67,12 +70,11 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
         videoRef.current.srcObject = mediaStream
       }
     } catch (err: any) {
-      console.error("Camera hardware lock exception:", err)
-      setCameraError("Camera access denied or unassigned. Please check application settings permissions.")
+      setCameraError("Camera access denied. Please check device application permissions.")
     }
   }
 
-  // 📝 CAPTURE SNAPSHOT AND WRITE TRANSACTION DIRECTLY TO THE DATABASE
+  // SNAPSHOT PHOTO AND WRITE INTEGRATION TO DATABASE
   const handleCaptureSnapshot = async () => {
     if (!videoRef.current || !canvasRef.current) return
 
@@ -97,7 +99,7 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
         streamRef.current = null
       }
 
-      // 🛠️ LIVE DB INSERT OPERATION: Push raw session records up to Supabase
+      // Live write operation directly inside database rows
       if (guardId) {
         const { error: dbError } = await supabase
           .from('guard_attendance')
@@ -105,25 +107,42 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
             {
               guard_id: guardId,
               project_id: projectId || null,
-              selfie_url: base64Data, // Stores base64 stream image safely inside column text
+              selfie_url: base64Data, 
               status: 'CLOCKED_IN'
             }
           ])
 
         if (dbError) {
-          console.error("Failed writing logs to guard_attendance table:", dbError)
+          console.error("Supabase Log Error:", dbError)
+          setCameraError(`Database rejected logs: ${dbError.message}`)
+          setIsSuccessState(false)
+          return
         }
       }
 
-      // Transition layouts and present success toast badge
       setTimeout(() => {
         setIsClockedIn(true)
         setShowCamera(false)
         setCapturedImageData(null)
         setIsSuccessState(false)
+        
+        // Present custom green success banner
+        setToastMessage('Attendance successfully updated.')
+        setToastColor('#10b981')
         setShowCustomToast(true)
       }, 3000)
     }
+  }
+
+  // Handle dynamic checkout workflow with clean confirmation UI
+  const executeClockOut = () => {
+    setIsClockedIn(false)
+    setShowSignOutConfirm(false)
+    
+    // Trigger custom notification using our approved style (Crimson layout red)
+    setToastMessage('Duty shift logged out successfully.')
+    setToastColor('#ef4444')
+    setShowCustomToast(true)
   }
 
   useEffect(() => {
@@ -134,13 +153,6 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
       return () => clearTimeout(timer)
     }
   }, [showCustomToast])
-
-  const handleClockOutSequence = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (confirm("Execute terminal sign-out sequence? Shift duration tally will lock.")) {
-      setIsClockedIn(false)
-    }
-  }
 
   const formatDutyTally = (totalSecs: number) => {
     const hrs = Math.floor(totalSecs / 3600)
@@ -153,7 +165,7 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
     <>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-      {/* PREMIUM CUSTOM TOAST NOTIFICATION LAYER */}
+      {/* 🔔 APPROVED CUSTOM IN-APP TOAST BANNER */}
       <div style={{
         position: 'fixed',
         top: '20px',
@@ -161,7 +173,7 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
         transform: showCustomToast ? 'translateY(0) translateX(-50%)' : 'translateY(-100px) translateX(-50%)',
         width: 'calc(100% - 40px)',
         maxWidth: '350px',
-        backgroundColor: '#10b981',
+        backgroundColor: toastColor,
         borderRadius: '16px',
         padding: '16px 20px',
         boxSizing: 'border-box',
@@ -169,17 +181,17 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
         alignItems: 'center',
         gap: '14px',
         zIndex: 9999999,
-        boxShadow: '0 10px 25px -5px rgba(16, 185, 129, 0.4)',
+        boxShadow: `0 10px 25px -5px ${toastColor}60`,
         transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
         opacity: showCustomToast ? 1 : 0
       }}>
-        <div style={{ width: '28px', height: '28px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', color: '#ffffff', fontWeight: 'bold' }}>✓</div>
+        <div style={{ width: '24px', height: '24px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', color: '#ffffff', fontWeight: 'bold' }}>✓</div>
         <div style={{ color: '#ffffff', fontSize: '14px', fontWeight: '700', letterSpacing: '0.2px' }}>
-          Attendance successfully updated.
+          {toastMessage}
         </div>
       </div>
 
-      {/* COMPONENT INTERFACE TILES */}
+      {/* COMPONENT INTERFACE TILE DISPLAY GRID */}
       <div 
         onClick={!isClockedIn ? startCameraStream : undefined}
         style={{ 
@@ -194,8 +206,7 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
           flexDirection: 'column', 
           alignItems: 'center', 
           gap: '14px',
-          position: 'relative',
-          transition: 'border 0.2s ease-in-out'
+          position: 'relative'
         }}
       >
         <div style={{ 
@@ -223,8 +234,8 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
                 ⏱️ {formatDutyTally(elapsedSeconds)}
               </span>
               <button 
-                onClick={handleClockOutSequence}
-                style={{ marginTop: '8px', backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '6px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}
+                onClick={(e) => { e.stopPropagation(); setShowSignOutConfirm(true); }}
+                style={{ marginTop: '8px', backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px rgba(239, 68, 68, 0.15)' }}
               >
                 Sign-Out Shift
               </button>
@@ -237,25 +248,9 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
         </div>
       </div>
 
-      {/* DYNAMIC CAM MODAL SYSTEM POPUP LAYER OVERLAY */}
+      {/* 📸 CAMERA FEED POPUP MODAL SCREEN */}
       {showCamera && (
-        <div style={{ 
-          position: 'fixed', 
-          top: 0, 
-          left: 0, 
-          width: '100vw', 
-          height: '100vh', 
-          backgroundColor: 'rgba(15, 23, 42, 0.75)', 
-          backdropFilter: 'blur(4px)',
-          zIndex: 99999, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          alignItems: 'center', 
-          justifyContent: 'flex-start', 
-          padding: '60px 20px 20px 20px', 
-          boxSizing: 'border-box', 
-          fontFamily: 'system-ui, -apple-system, sans-serif' 
-        }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', zIndex: 99999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: '60px 20px 20px 20px', boxSizing: 'border-box', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
           <div style={{ backgroundColor: '#ffffff', width: '100%', maxWidth: '390px', borderRadius: '24px', padding: '24px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '18px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -267,49 +262,42 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
               )}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', height: '270px', backgroundColor: '#0f172a', borderRadius: '16px', overflow: 'hidden', position: 'relative', boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', height: '270px', backgroundColor: '#0f172a', borderRadius: '16px', overflow: 'hidden', position: 'relative' }}>
               {cameraError ? (
                 <div style={{ color: '#f87171', fontSize: '12px', padding: '20px', textAlign: 'center', fontWeight: '600' }}>⚠️ {cameraError}</div>
               ) : capturedImageData ? (
-                <img 
-                  src={capturedImageData} 
-                  alt="Captured Selfie" 
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                />
+                <img src={capturedImageData} alt="Selfie" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
-                <video 
-                  ref={videoRef}
-                  autoPlay 
-                  playsInline 
-                  muted
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} 
-                />
+                <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
               )}
-
               {isSuccessState && (
-                <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', backgroundColor: 'rgba(16, 185, 129, 0.9)', color: 'white', padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: 'bold', letterSpacing: '0.5px' }}>
+                <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', backgroundColor: 'rgba(16, 185, 129, 0.9)', color: 'white', padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: 'bold' }}>
                   Processing secure verification frames...
                 </div>
               )}
             </div>
 
             <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
-              <button 
-                onClick={stopCameraStream}
-                disabled={isSuccessState}
-                style={{ flex: 1, height: '46px', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '12px', color: '#475569', fontSize: '13px', fontWeight: '700', cursor: isSuccessState ? 'not-allowed' : 'pointer', opacity: isSuccessState ? 0.5 : 1 }}
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleCaptureSnapshot}
-                disabled={!!cameraError || isSuccessState}
-                style={{ flex: 2, height: '46px', backgroundColor: (!!cameraError || isSuccessState) ? '#cbd5e1' : '#10b981', border: 'none', borderRadius: '12px', color: 'white', fontSize: '13px', fontWeight: '700', cursor: (!!cameraError || isSuccessState) ? 'not-allowed' : 'pointer', boxShadow: (!cameraError && !isSuccessState) ? '0 4px 12px rgba(16, 185, 129, 0.25)' : 'none' }}
-              >
+              <button onClick={stopCameraStream} disabled={isSuccessState} style={{ flex: 1, height: '46px', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '12px', color: '#475569', fontSize: '13px', fontWeight: '700', cursor: isSuccessState ? 'not-allowed' : 'pointer' }}>Cancel</button>
+              <button onClick={handleCaptureSnapshot} disabled={!!cameraError || isSuccessState} style={{ flex: 2, height: '46px', backgroundColor: (!!cameraError || isSuccessState) ? '#cbd5e1' : '#10b981', border: 'none', borderRadius: '12px', color: 'white', fontSize: '13px', fontWeight: '700', cursor: (!!cameraError || isSuccessState) ? 'not-allowed' : 'pointer' }}>
                 {isSuccessState ? 'Verifying Identity...' : 'Snap & Clock In'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
 
+      {/* 🛑 UPGRADED: HIGH-PREMIUM SIGN OUT CONFIRMATION MODAL CARD */}
+      {showSignOutConfirm && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(3px)', zIndex: 999999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', boxSizing: 'border-box', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+          <div style={{ backgroundColor: '#ffffff', width: '100%', maxWidth: '360px', borderRadius: '24px', padding: '24px', boxSizing: 'border-box', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.2)' }}>
+            <div style={{ width: '56px', height: '56px', backgroundColor: '#fef2f2', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', color: '#ef4444', margin: '0 auto 16px auto' }}>🚪</div>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: '800', color: '#1e293b' }}>Confirm Sign-Out</h3>
+            <p style={{ margin: '0 0 24px 0', fontSize: '13px', color: '#64748b', lineHeight: '1.5', fontWeight: '500' }}>Are you sure you want to end your active duty shift right now? Your cumulative shift timeline tally will be safely locked.</p>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button onClick={() => setShowSignOutConfirm(false)} style={{ flex: 1, height: '44px', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '12px', color: '#475569', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={executeClockOut} style={{ flex: 1, height: '44px', backgroundColor: '#ef4444', border: 'none', borderRadius: '12px', color: 'white', fontSize: '13px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)' }}>Sign Out</button>
+            </div>
           </div>
         </div>
       )}
