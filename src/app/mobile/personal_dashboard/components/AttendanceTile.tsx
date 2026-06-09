@@ -12,6 +12,15 @@ interface AttendanceTileProps {
   projectId: string | null
 }
 
+type ShiftType = 'DAY' | 'NIGHT'
+
+interface ShiftDecision {
+  scheduledShift: ShiftType
+  actualShift: ShiftType
+  attendanceType: 'NORMAL' | 'OT'
+  shiftExceptionReason: string | null
+}
+
 export default function AttendanceTile({ guardId, projectId }: AttendanceTileProps) {
   const [isClockedIn, setIsClockedIn] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
@@ -28,6 +37,8 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
 
   // 🔔 NEW: Custom Modern In-App Sign-Out Confirmation Overlay state
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false)
+  const [pendingShiftDecision, setPendingShiftDecision] = useState<ShiftDecision | null>(null)
+  const [activeShiftDecision, setActiveShiftDecision] = useState<ShiftDecision | null>(null)
   
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -99,9 +110,10 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
     setCameraError(null)
     setCapturedImageData(null)
     setIsSuccessState(false)
+    setActiveShiftDecision(null)
   }
 
-  const startCameraStream = async () => {
+  const startCameraStream = async (approvedShiftDecision?: ShiftDecision) => {
     const activeShift = await restoreActiveShift()
     if (activeShift) {
       setToastMessage('You are already clocked in. Sign out before starting a new shift.')
@@ -110,6 +122,13 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
       return
     }
 
+    const shiftDecision = approvedShiftDecision || await resolveShiftDecision()
+    if (shiftDecision.attendanceType === 'OT' && !approvedShiftDecision) {
+      setPendingShiftDecision(shiftDecision)
+      return
+    }
+
+    setActiveShiftDecision(shiftDecision)
     setShowCamera(true)
     setCameraError(null)
     setCapturedImageData(null)
@@ -173,7 +192,11 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
               guard_id: guardId,
               project_id: projectId || null,
               selfie_url: base64Data, 
-              status: 'CLOCKED_IN'
+              status: 'CLOCKED_IN',
+              scheduled_shift: activeShiftDecision?.scheduledShift || getActualShift(new Date()),
+              actual_shift: activeShiftDecision?.actualShift || getActualShift(new Date()),
+              attendance_type: activeShiftDecision?.attendanceType || 'NORMAL',
+              shift_exception_reason: activeShiftDecision?.shiftExceptionReason || null
             }
           ])
           .select('id, clock_in_time')
@@ -196,6 +219,7 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
         setShowCamera(false)
         setCapturedImageData(null)
         setIsSuccessState(false)
+        setActiveShiftDecision(null)
         
         // Present custom green success banner
         setToastMessage('Attendance successfully updated.')
@@ -259,6 +283,31 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
+  const resolveShiftDecision = async (): Promise<ShiftDecision> => {
+    const actualShift = getActualShift(new Date())
+    let scheduledShift = actualShift
+
+    if (guardId) {
+      const { data, error } = await supabase
+        .from('guards')
+        .select('shift_type')
+        .eq('id', guardId)
+        .maybeSingle()
+
+      if (!error && data?.shift_type) {
+        scheduledShift = normalizeShift(data.shift_type)
+      }
+    }
+
+    const isOt = scheduledShift !== actualShift
+    return {
+      scheduledShift,
+      actualShift,
+      attendanceType: isOt ? 'OT' : 'NORMAL',
+      shiftExceptionReason: isOt ? 'OUTSIDE_SCHEDULE' : null
+    }
+  }
+
   return (
     <>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
@@ -291,7 +340,7 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
 
       {/* COMPONENT INTERFACE TILE DISPLAY GRID */}
       <div 
-        onClick={!isClockedIn ? startCameraStream : undefined}
+        onClick={!isClockedIn ? () => startCameraStream() : undefined}
         style={{ 
           backgroundColor: '#ffffff', 
           border: isClockedIn ? '2px solid #10b981' : '1px solid #eef2f6', 
@@ -355,6 +404,25 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
         </div>
       </div>
 
+      {pendingShiftDecision && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(3px)', zIndex: 999999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', boxSizing: 'border-box', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+          <div style={{ backgroundColor: '#ffffff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '24px', boxSizing: 'border-box', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.2)' }}>
+            <div style={{ width: '56px', height: '56px', backgroundColor: '#fff7ed', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', color: '#ea580c', margin: '0 auto 16px auto' }}>!</div>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: '800', color: '#1e293b' }}>Outside Scheduled Shift</h3>
+            <p style={{ margin: '0 0 18px 0', fontSize: '13px', color: '#64748b', lineHeight: '1.5', fontWeight: '500' }}>
+              Your assigned shift is {getShiftLabel(pendingShiftDecision.scheduledShift)}. The current time belongs to {getShiftLabel(pendingShiftDecision.actualShift)}.
+            </p>
+            <p style={{ margin: '0 0 24px 0', fontSize: '12px', color: '#92400e', lineHeight: '1.5', fontWeight: '700', backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '12px', padding: '10px' }}>
+              Continue only if this duty is approved as OT.
+            </p>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button onClick={() => setPendingShiftDecision(null)} style={{ flex: 1, height: '44px', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '12px', color: '#475569', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => { const decision = pendingShiftDecision; setPendingShiftDecision(null); startCameraStream(decision); }} style={{ flex: 1.4, height: '44px', backgroundColor: '#ea580c', border: 'none', borderRadius: '12px', color: 'white', fontSize: '13px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 12px rgba(234, 88, 12, 0.2)' }}>Continue as OT</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 📸 CAMERA FEED POPUP MODAL SCREEN */}
       {showCamera && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', zIndex: 99999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: '60px 20px 20px 20px', boxSizing: 'border-box', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
@@ -410,4 +478,17 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
       )}
     </>
   )
+}
+
+function getActualShift(date: Date): ShiftType {
+  const hour = date.getHours()
+  return hour >= 20 || hour < 8 ? 'NIGHT' : 'DAY'
+}
+
+function normalizeShift(value: string): ShiftType {
+  return value.toLowerCase().includes('night') ? 'NIGHT' : 'DAY'
+}
+
+function getShiftLabel(shift: ShiftType) {
+  return shift === 'NIGHT' ? 'Night Shift (08:00 PM - 08:00 AM)' : 'Day Shift (08:00 AM - 08:00 PM)'
 }

@@ -14,6 +14,10 @@ interface AttendanceRow {
   clock_in_time: string
   clock_out_time: string | null
   status: string | null
+  scheduled_shift: string | null
+  actual_shift: string | null
+  attendance_type: string | null
+  shift_exception_reason: string | null
 }
 
 interface GuardRow {
@@ -40,6 +44,7 @@ interface AttendanceRecord {
   clockOut: string
   totalHours: string
   arrivalStatus: 'ON TIME' | 'LATE'
+  attendanceType: 'NORMAL' | 'OT'
   dutyStatus: string
 }
 
@@ -107,7 +112,7 @@ function AttendanceReportContent() {
 
       let attendanceQuery = supabase
         .from('guard_attendance')
-        .select('id, guard_id, project_id, clock_in_time, clock_out_time, status')
+        .select('id, guard_id, project_id, clock_in_time, clock_out_time, status, scheduled_shift, actual_shift, attendance_type, shift_exception_reason')
         .gte('clock_in_time', rangeStart.toISOString())
         .lt('clock_in_time', rangeEnd.toISOString())
         .order('clock_in_time', { ascending: false })
@@ -124,7 +129,7 @@ function AttendanceReportContent() {
       if (projectId && rows.length === 0) {
         const { data: allAttendanceData, error: allAttendanceError } = await supabase
           .from('guard_attendance')
-          .select('id, guard_id, project_id, clock_in_time, clock_out_time, status')
+          .select('id, guard_id, project_id, clock_in_time, clock_out_time, status, scheduled_shift, actual_shift, attendance_type, shift_exception_reason')
           .gte('clock_in_time', rangeStart.toISOString())
           .lt('clock_in_time', rangeEnd.toISOString())
           .order('clock_in_time', { ascending: false })
@@ -185,10 +190,11 @@ function AttendanceReportContent() {
   }, [attendanceRecords])
 
   const handleExportCsv = () => {
-    const headers = ['Date', 'Shift', 'Guard Name', 'Staff ID', 'Schedule', 'Clock In', 'Clock Out', 'Hours', 'Status']
+    const headers = ['Date', 'Actual Shift', 'Attendance Type', 'Guard Name', 'Staff ID', 'Scheduled Shift', 'Clock In', 'Clock Out', 'Hours', 'Status']
     const csvRows = attendanceRecords.map(record => [
       record.date,
       record.shift,
+      record.attendanceType,
       record.guardName,
       record.guardId,
       record.schedule,
@@ -337,7 +343,11 @@ function AttendanceShiftTable({
                 <td style={{ padding: '14px 8px', fontSize: '13.5px', color: '#1e293b', fontWeight: 'bold', verticalAlign: 'top' }}>{row.totalHours}</td>
                 <td style={{ padding: '14px 8px', verticalAlign: 'top' }}>
                   <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span style={{ backgroundColor: row.arrivalStatus === 'LATE' ? '#ea580c' : '#10b981', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '3px 7px', borderRadius: '4px' }}>{row.arrivalStatus}</span>
+                    {row.attendanceType === 'OT' ? (
+                      <span style={{ backgroundColor: '#ea580c', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '3px 7px', borderRadius: '4px' }}>OT</span>
+                    ) : (
+                      <span style={{ backgroundColor: row.arrivalStatus === 'LATE' ? '#ea580c' : '#10b981', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '3px 7px', borderRadius: '4px' }}>{row.arrivalStatus}</span>
+                    )}
                     <span style={{ backgroundColor: row.dutyStatus === 'ACTIVE' ? '#2563eb' : '#64748b', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '3px 7px', borderRadius: '4px' }}>{row.dutyStatus}</span>
                   </div>
                 </td>
@@ -353,8 +363,10 @@ function AttendanceShiftTable({
 function mapAttendanceRecord(row: AttendanceRow, guard?: GuardRow): AttendanceRecord {
   const clockIn = new Date(row.clock_in_time)
   const clockOut = row.clock_out_time ? new Date(row.clock_out_time) : null
-  const shift = resolveShift(clockIn, guard?.shift_type)
-  const schedule = shift === 'NIGHT' ? NIGHT_SCHEDULE : DAY_SCHEDULE
+  const shift = normalizeShift(row.actual_shift) || inferShiftFromClockIn(clockIn)
+  const scheduledShift = normalizeShift(row.scheduled_shift) || normalizeShift(guard?.shift_type) || shift
+  const schedule = scheduledShift === 'NIGHT' ? NIGHT_SCHEDULE : DAY_SCHEDULE
+  const attendanceType = row.attendance_type?.toUpperCase() === 'OT' ? 'OT' : 'NORMAL'
 
   return {
     id: row.id,
@@ -367,14 +379,19 @@ function mapAttendanceRecord(row: AttendanceRow, guard?: GuardRow): AttendanceRe
     clockOut: clockOut ? formatDateTime(clockOut) : 'Active shift',
     totalHours: clockOut ? formatDuration(clockIn, clockOut) : 'In Progress',
     arrivalStatus: isLate(clockIn, shift) ? 'LATE' : 'ON TIME',
+    attendanceType,
     dutyStatus: clockOut ? normalizeStatus(row.status, 'COMPLETED') : 'ACTIVE'
   }
 }
 
-function resolveShift(clockIn: Date, shiftType?: string | null): ShiftType {
+function normalizeShift(shiftType?: string | null): ShiftType | null {
   if (shiftType?.toLowerCase().includes('night')) return 'NIGHT'
   if (shiftType?.toLowerCase().includes('day')) return 'DAY'
-  return clockIn.getHours() >= 18 || clockIn.getHours() < 6 ? 'NIGHT' : 'DAY'
+  return null
+}
+
+function inferShiftFromClockIn(clockIn: Date): ShiftType {
+  return clockIn.getHours() >= 20 || clockIn.getHours() < 8 ? 'NIGHT' : 'DAY'
 }
 
 function isLate(clockIn: Date, shift: ShiftType) {
