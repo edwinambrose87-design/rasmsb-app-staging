@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { useBrand } from '@/context/BrandContext'
@@ -65,7 +65,7 @@ function AttendanceReportContent() {
   const today = useMemo(() => new Date(), [])
   const defaultStartDate = useMemo(() => {
     const date = new Date(today)
-    date.setDate(date.getDate() - 14)
+    date.setDate(date.getDate() - 3)
     return toInputDate(date)
   }, [today])
   const defaultEndDate = useMemo(() => toInputDate(today), [today])
@@ -77,6 +77,8 @@ function AttendanceReportContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [scopeNotice, setScopeNotice] = useState<string | null>(null)
+  const startDateRef = useRef<HTMLInputElement | null>(null)
+  const endDateRef = useRef<HTMLInputElement | null>(null)
 
   const supabase = useMemo(
     () => createBrowserClient(
@@ -230,6 +232,16 @@ function AttendanceReportContent() {
     }
   }
 
+  const openDatePicker = (input: HTMLInputElement | null) => {
+    if (!input) return
+    if (typeof input.showPicker === 'function') {
+      input.showPicker()
+    } else {
+      input.focus()
+      input.click()
+    }
+  }
+
   return (
     <div style={{ padding: '40px', backgroundColor: '#f8fafc', minHeight: '100%', width: '100%', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '35px', maxWidth: '1200px', width: '100%', gap: '20px', flexWrap: 'wrap' }}>
@@ -242,20 +254,29 @@ function AttendanceReportContent() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-          <div style={{ backgroundColor: 'white', padding: '10px 20px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '15px', minHeight: '56px', boxSizing: 'border-box' }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '2px', cursor: 'pointer' }}>
-              <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#64748b' }}>START DATE</span>
-              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} style={{ color: themeColor, fontWeight: '600', fontSize: '13px', border: 'none', outline: 'none', background: 'transparent' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+          <div style={{ backgroundColor: 'white', padding: '8px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px', minHeight: '58px', boxSizing: 'border-box', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.03)' }}>
+            <label onClick={() => openDatePicker(startDateRef.current)} style={{ display: 'grid', gridTemplateColumns: '1fr 34px', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '6px 8px 6px 12px', minWidth: '150px', borderRadius: '9px', backgroundColor: '#f8fafc' }}>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#64748b' }}>START DATE</span>
+                <input ref={startDateRef} type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} style={{ color: themeColor, fontWeight: '700', fontSize: '13px', border: 'none', outline: 'none', background: 'transparent', cursor: 'pointer', width: '110px' }} />
+              </span>
+              <button type="button" onClick={(event) => { event.preventDefault(); openDatePicker(startDateRef.current) }} aria-label="Open start date calendar" style={{ width: '34px', height: '34px', border: 'none', borderRadius: '8px', backgroundColor: '#ffffff', color: themeColor, fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                📅
+              </button>
             </label>
-            <div style={{ color: '#cbd5e1' }}>TO</div>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '2px', cursor: 'pointer' }}>
-              <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#64748b' }}>END DATE</span>
-              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} style={{ color: themeColor, fontWeight: '600', fontSize: '13px', border: 'none', outline: 'none', background: 'transparent' }} />
+            <label onClick={() => openDatePicker(endDateRef.current)} style={{ display: 'grid', gridTemplateColumns: '1fr 34px', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '6px 8px 6px 12px', minWidth: '150px', borderRadius: '9px', backgroundColor: '#f8fafc' }}>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#64748b' }}>END DATE</span>
+                <input ref={endDateRef} type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} style={{ color: themeColor, fontWeight: '700', fontSize: '13px', border: 'none', outline: 'none', background: 'transparent', cursor: 'pointer', width: '110px' }} />
+              </span>
+              <button type="button" onClick={(event) => { event.preventDefault(); openDatePicker(endDateRef.current) }} aria-label="Open end date calendar" style={{ width: '34px', height: '34px', border: 'none', borderRadius: '8px', backgroundColor: '#ffffff', color: themeColor, fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                📅
+              </button>
             </label>
           </div>
           <button onClick={handleExportPdf} disabled={attendanceRecords.length === 0} style={{ backgroundColor: attendanceRecords.length === 0 ? '#94a3b8' : '#10b981', color: 'white', border: 'none', padding: '0 24px', borderRadius: '10px', fontSize: '14px', fontWeight: 'bold', cursor: attendanceRecords.length === 0 ? 'not-allowed' : 'pointer', height: '56px' }}>
-            Export Attendance Log
+            Download Report
           </button>
         </div>
       </div>
