@@ -7,6 +7,12 @@ import { useBrand } from '@/context/BrandContext'
 
 type ShiftType = 'DAY' | 'NIGHT'
 
+declare global {
+  interface Window {
+    PDFLib?: any
+  }
+}
+
 interface AttendanceRow {
   id: string
   guard_id: string | null
@@ -189,30 +195,39 @@ function AttendanceReportContent() {
     return Array.from(dateSet).sort((a, b) => b.localeCompare(a))
   }, [attendanceRecords])
 
-  const handleExportCsv = () => {
-    const headers = ['Date', 'Actual Shift', 'Attendance Type', 'Guard Name', 'Staff ID', 'Scheduled Shift', 'Clock In', 'Clock Out', 'Hours', 'Status']
-    const csvRows = attendanceRecords.map(record => [
-      record.date,
-      record.shift,
-      record.attendanceType,
-      record.guardName,
-      record.guardId,
-      record.schedule,
-      record.clockIn,
-      record.clockOut,
-      record.totalHours,
-      record.dutyStatus
-    ])
-    const csv = [headers, ...csvRows].map(row => row.map(escapeCsvCell).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `attendance-report-${startDate}-to-${endDate}.csv`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+  const handleExportPdf = async () => {
+    const projectName = activeProject?.name || 'All Sites'
+    const reportDates = activeTimelineDates.length > 0 ? activeTimelineDates : [startDate]
+    const generatedAt = new Intl.DateTimeFormat('en-MY', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }).format(new Date())
+
+    try {
+      const pdfBytes = await buildAttendancePdf({
+        projectName,
+        startDate,
+        endDate,
+        generatedAt,
+        reportDates,
+        records: attendanceRecords
+      })
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `attendance-report-${startDate}-to-${endDate}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to generate attendance PDF.')
+    }
   }
 
   return (
@@ -239,7 +254,7 @@ function AttendanceReportContent() {
               <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} style={{ color: themeColor, fontWeight: '600', fontSize: '13px', border: 'none', outline: 'none', background: 'transparent' }} />
             </label>
           </div>
-          <button onClick={handleExportCsv} disabled={attendanceRecords.length === 0} style={{ backgroundColor: attendanceRecords.length === 0 ? '#94a3b8' : '#10b981', color: 'white', border: 'none', padding: '0 24px', borderRadius: '10px', fontSize: '14px', fontWeight: 'bold', cursor: attendanceRecords.length === 0 ? 'not-allowed' : 'pointer', height: '56px' }}>
+          <button onClick={handleExportPdf} disabled={attendanceRecords.length === 0} style={{ backgroundColor: attendanceRecords.length === 0 ? '#94a3b8' : '#10b981', color: 'white', border: 'none', padding: '0 24px', borderRadius: '10px', fontSize: '14px', fontWeight: 'bold', cursor: attendanceRecords.length === 0 ? 'not-allowed' : 'pointer', height: '56px' }}>
             Export Attendance Log
           </button>
         </div>
@@ -430,6 +445,163 @@ function formatDuration(start: Date, end: Date) {
   return `${hours}h ${minutes.toString().padStart(2, '0')}m`
 }
 
+async function buildAttendancePdf({
+  projectName,
+  startDate,
+  endDate,
+  generatedAt,
+  reportDates,
+  records
+}: {
+  projectName: string
+  startDate: string
+  endDate: string
+  generatedAt: string
+  reportDates: string[]
+  records: AttendanceRecord[]
+}) {
+  const { PDFDocument, StandardFonts, rgb } = await loadPdfLib()
+  const pdfDoc = await PDFDocument.create()
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+  const pageWidth = 595.28
+  const pageHeight = 841.89
+  const margin = 34
+  const contentWidth = pageWidth - margin * 2
+  const navy = rgb(0.11, 0.24, 0.55)
+  const slate = rgb(0.29, 0.36, 0.45)
+  const border = rgb(0.87, 0.9, 0.94)
+  const green = rgb(0.02, 0.59, 0.41)
+  const red = rgb(0.86, 0.15, 0.15)
+  const orange = rgb(0.92, 0.35, 0.05)
+  const blue = rgb(0.15, 0.39, 0.92)
+  const gray = rgb(0.39, 0.45, 0.55)
+
+  let page = pdfDoc.addPage([pageWidth, pageHeight])
+  let y = pageHeight - 34
+
+  const addPage = () => {
+    page = pdfDoc.addPage([pageWidth, pageHeight])
+    y = pageHeight - 34
+    drawHeader(false)
+  }
+
+  const ensureSpace = (height: number) => {
+    if (y - height < 36) addPage()
+  }
+
+  const drawText = (value: string, x: number, yPos: number, size = 9, options?: { bold?: boolean; color?: any; maxWidth?: number }) => {
+    page.drawText(sanitizePdfText(value), {
+      x,
+      y: yPos,
+      size,
+      font: options?.bold ? boldFont : font,
+      color: options?.color || rgb(0.06, 0.09, 0.16),
+      maxWidth: options?.maxWidth
+    })
+  }
+
+  const drawHeader = (full: boolean) => {
+    drawText('RASMSB', margin, y, 18, { bold: true, color: navy })
+    y -= 23
+    drawText('Daily Attendance Report', margin, y, 14, { bold: true, color: navy })
+    y -= 16
+    if (full) {
+      drawText(`Monitoring Site: ${projectName}`, margin, y, 9, { color: slate })
+      y -= 13
+      drawText(`Date Range: ${formatDisplayDate(startDate)} to ${formatDisplayDate(endDate)}    Generated: ${generatedAt}`, margin, y, 9, { color: slate })
+      y -= 16
+    }
+    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1.4, color: navy })
+    y -= 18
+  }
+
+  const drawBadge = (value: string, x: number, yPos: number, color: any) => {
+    const width = Math.max(22, boldFont.widthOfTextAtSize(value, 7) + 9)
+    page.drawRectangle({ x, y: yPos - 3, width, height: 12, color })
+    drawText(value, x + 4, yPos, 7, { bold: true, color: rgb(1, 1, 1) })
+    return width
+  }
+
+  const drawWrapped = (value: string, x: number, yPos: number, width: number, size = 8, isBold = false, color: any = rgb(0.06, 0.09, 0.16)) => {
+    const words = sanitizePdfText(value).split(/\s+/)
+    const lines: string[] = []
+    let line = ''
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word
+      const measured = (isBold ? boldFont : font).widthOfTextAtSize(next, size)
+      if (measured > width && line) {
+        lines.push(line)
+        line = word
+      } else {
+        line = next
+      }
+    }
+    if (line) lines.push(line)
+    lines.slice(0, 3).forEach((lineText, index) => drawText(lineText, x, yPos - index * (size + 2), size, { bold: isBold, color }))
+  }
+
+  const drawShift = (title: string, schedule: string, rows: AttendanceRecord[]) => {
+    ensureSpace(72)
+    page.drawRectangle({ x: margin, y: y - 17, width: contentWidth, height: 22, color: rgb(0.94, 0.97, 1), borderColor: rgb(0.86, 0.92, 1), borderWidth: 0.7 })
+    drawText(`${title} (${schedule})`, margin + 8, y - 9, 10, { bold: true, color: navy })
+    y -= 32
+
+    const cols = [margin, margin + 120, margin + 230, margin + 362, margin + 424]
+    drawText('GUARD DETAILS', cols[0], y, 7, { bold: true, color: slate })
+    drawText('SCHEDULED SHIFT', cols[1], y, 7, { bold: true, color: slate })
+    drawText('CLOCK IN / OUT', cols[2], y, 7, { bold: true, color: slate })
+    drawText('HOURS', cols[3], y, 7, { bold: true, color: slate })
+    drawText('STATUS', cols[4], y, 7, { bold: true, color: slate })
+    y -= 8
+    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.7, color: border })
+    y -= 14
+
+    if (rows.length === 0) {
+      drawText('No records for this shift.', margin, y, 9, { bold: true, color: rgb(0.58, 0.64, 0.72) })
+      y -= 24
+      return
+    }
+
+    for (const row of rows) {
+      ensureSpace(44)
+      const rowTop = y
+      drawWrapped(row.guardName, cols[0], rowTop, 110, 8.5, true)
+      drawText(`ID: ${row.guardId}`, cols[0], rowTop - 13, 7, { color: slate })
+      drawWrapped(row.schedule, cols[1], rowTop, 96, 8, false, slate)
+      drawText(`In: ${row.clockIn}`, cols[2], rowTop, 8, { bold: true, color: green })
+      drawText(`Out: ${row.clockOut}`, cols[2], rowTop - 12, 8, { bold: true, color: red })
+      drawWrapped(row.totalHours, cols[3], rowTop, 52, 8, true)
+
+      let statusX = cols[4]
+      if (row.attendanceType === 'OT') {
+        statusX += drawBadge('OT', statusX, rowTop, orange) + 4
+      } else {
+        statusX += drawBadge(row.arrivalStatus, statusX, rowTop, row.arrivalStatus === 'LATE' ? orange : green) + 4
+      }
+      drawBadge(row.dutyStatus, statusX, rowTop, row.dutyStatus === 'ACTIVE' ? blue : gray)
+
+      y -= 30
+      page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5, color: border })
+      y -= 10
+    }
+  }
+
+  drawHeader(true)
+  for (const targetDate of reportDates) {
+    ensureSpace(64)
+    page.drawRectangle({ x: margin, y: y - 16, width: contentWidth, height: 22, color: navy })
+    drawText(`ATTENDANCE: ${formatDisplayDate(targetDate)}`, margin + 10, y - 8, 10, { bold: true, color: rgb(1, 1, 1) })
+    y -= 34
+    drawShift('DAY SHIFT', DAY_SCHEDULE, records.filter(record => record.date === targetDate && record.shift === 'DAY'))
+    y -= 8
+    drawShift('NIGHT SHIFT', NIGHT_SCHEDULE, records.filter(record => record.date === targetDate && record.shift === 'NIGHT'))
+    y -= 12
+  }
+
+  return pdfDoc.save()
+}
+
 function toInputDate(date: Date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -437,8 +609,32 @@ function toInputDate(date: Date) {
   return `${year}-${month}-${day}`
 }
 
-function escapeCsvCell(value: string) {
-  return `"${value.replace(/"/g, '""')}"`
+async function loadPdfLib() {
+  if (window.PDFLib) return window.PDFLib
+
+  await new Promise<void>((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>('script[data-pdf-lib="true"]')
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve(), { once: true })
+      existingScript.addEventListener('error', () => reject(new Error('Failed to load PDF generator.')), { once: true })
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = '/vendor/pdf-lib.min.js'
+    script.async = true
+    script.dataset.pdfLib = 'true'
+    script.onload = () => resolve()
+    script.onerror = () => reject(new Error('Failed to load PDF generator.'))
+    document.body.appendChild(script)
+  })
+
+  if (!window.PDFLib) throw new Error('PDF generator is unavailable.')
+  return window.PDFLib
+}
+
+function sanitizePdfText(value: string) {
+  return value.replace(/[^\x20-\x7E]/g, '')
 }
 
 const thStyle = {
