@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useBrand } from '@/context/BrandContext'
 import { createBrowserClient } from '@supabase/ssr'
 
@@ -10,9 +10,12 @@ export default function GlobalBrandingPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Initialize Supabase Client
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabase = useMemo(
+    () => createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ),
+    []
   )
 
   // Screen-Centered Custom Toast Notification State
@@ -65,7 +68,7 @@ export default function GlobalBrandingPage() {
       }
     }
     fetchLiveBranding()
-  }, [])
+  }, [setThemeColor, supabase])
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useBrand } from '@/context/BrandContext'
 import { GoogleMap, useJsApiLoader, MarkerF, CircleF, Autocomplete } from '@react-google-maps/api'
 import { createBrowserClient } from '@supabase/ssr'
@@ -15,31 +15,30 @@ export default function ProjectDirectoryPage() {
     libraries: MAP_LIBRARIES
   })
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabase = useMemo(
+    () => createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ),
+    []
   )
 
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([])
   const [projectsPool, setProjectsPool] = useState<any[]>([])
-  const [isSyncing, setIsSyncing] = useState(true)
-
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const autocompleteRefs = useRef<Record<string, google.maps.places.Autocomplete | null>>({})
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 3000)
-  }
+  }, [])
 
-  const fetchLiveProjects = async () => {
+  const fetchLiveProjects = useCallback(async () => {
     try {
-      setIsSyncing(true)
-      
       const { data: projectData, error: projError } = await supabase
         .from('projects')
         .select('*')
@@ -92,14 +91,12 @@ export default function ProjectDirectoryPage() {
       }
     } catch (err) {
       console.error('Error querying database metrics:', err)
-    } finally {
-      setIsSyncing(false)
     }
-  }
+  }, [supabase])
 
   useEffect(() => {
     fetchLiveProjects()
-  }, [])
+  }, [fetchLiveProjects])
 
   const toggleProjectExpand = (id: string) => {
     setExpandedProjectIds(prev => prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id])

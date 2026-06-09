@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RASMSB Management Ecosystem
 
-## Getting Started
+Security operations management application for Rashid Azlan Security. The app is built with Next.js, React, TypeScript, Supabase, Google Maps, and QR generation workflows.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 App Router
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- Supabase Auth and database
+- Google Maps via `@react-google-maps/api`
+- QR generation via `qrcode`
+
+## Main Routes
+
+- `/login` - Admin and manager login with email/password, Google OAuth, password reset, and dynamic branding.
+- `/dashboard` - Main authenticated operations dashboard.
+- `/dashboard/project-directory` - Project/site records, building manager details, maps, geofence settings, and assigned guards.
+- `/dashboard/guards` - Guard directory with personnel registration, editing, assignment, and deletion flows.
+- `/dashboard/Clocking_Report` - Patrol clocking report view backed by Supabase clocking tables.
+- `/dashboard/Clocking_Report/checkpoints` - Master checkpoint creation and QR code downloads.
+- `/dashboard/global-branding` - Organization name, logo, theme color, and brightness settings.
+- `/mobile` - Guard or fixed-terminal mobile login.
+- `/mobile/personal_dashboard` - Guard mobile dashboard with attendance selfie capture.
+- `/mobile/company_terminal` - Shared fixed-device terminal patrol flow.
+
+## Supabase Tables Referenced
+
+- `profiles`
+- `projects`
+- `guards`
+- `global_branding`
+- `clocking_master_checkpoints`
+- `clocking_rounds`
+- `device_terminals`
+- `guard_attendance`
+
+## Local Development
+
+Create `.env.local` with:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_publishable_key
+```
+
+Then run:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The default development script uses Webpack because Turbopack can be memory-heavy on some Windows machines. To test Turbopack manually, run:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run dev:turbo
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Verification
 
-## Learn More
+```bash
+npm run lint
+npm run build
+```
 
-To learn more about Next.js, take a look at the following resources:
+Both commands currently pass.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Notes For Future Work
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- This project uses Next.js 16. Read `node_modules/next/dist/docs/` before changing framework-sensitive files.
+- The request gateway uses `src/proxy.ts`, which is the Next.js 16 replacement for `middleware.ts`.
+- Many screens are still prototype-style and use inline styles. Refactor gradually by module rather than rewriting everything at once.
+- Several dashboard pages still use sample data and should be connected to Supabase in future passes.
+- Regular `<img>` elements are allowed intentionally because the app renders dynamic remote, uploaded, and base64 image sources.

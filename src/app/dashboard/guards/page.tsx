@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useBrand } from '@/context/BrandContext'
 import { createBrowserClient } from '@supabase/ssr'
 
@@ -26,9 +26,12 @@ interface GuardItem {
 export default function GuardsDirectoryPage() {
   const { themeColor } = useBrand() 
   
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabase = useMemo(
+    () => createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ),
+    []
   )
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -50,12 +53,12 @@ export default function GuardsDirectoryPage() {
   const defaultGuardData = { name: '', staffId: '', nationality: 'Malaysian', phone: '', assignedPost: 'Main Gate House', shift: 'DAY' as const, siteId: 'UNASSIGNED', avatarSrc: '' }
   const [newGuardData, setNewGuardData] = useState(defaultGuardData)
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 3000)
-  }
+  }, [])
 
-  const fetchDatabaseResources = async () => {
+  const fetchDatabaseResources = useCallback(async () => {
     try {
       setIsLoading(true)
       
@@ -99,11 +102,11 @@ export default function GuardsDirectoryPage() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [showToast, supabase])
 
   useEffect(() => {
     fetchDatabaseResources()
-  }, [])
+  }, [fetchDatabaseResources])
 
   const handleOpenRegister = () => {
     setEditingGuardId(null)
@@ -406,7 +409,7 @@ export default function GuardsDirectoryPage() {
                   <label style={labelStyle}>Profile Photo</label>
                   <div style={{ flex: 1, minHeight: '140px', backgroundColor: '#f1f5f9', border: '2px dashed #cbd5e1', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative', marginBottom: '8px' }}>
                     {newGuardData.avatarSrc ? (
-                      <img src={newGuardData.avatarSrc} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <img src={newGuardData.avatarSrc} alt="Selected guard profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : (
                       <span style={{ fontSize: '32px' }}>👤</span>
                     )}
@@ -504,7 +507,7 @@ export default function GuardsDirectoryPage() {
             </div>
             <div style={{ padding: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
               <div style={{ width: '180px', height: '180px', backgroundColor: '#f1f5f9', color: themeColor, borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: `1px solid ${themeColor}33` }}>
-                {targetZoomedGuard.avatarSrc ? <img src={targetZoomedGuard.avatarSrc} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : targetZoomedGuard.name.substring(0, 2).toUpperCase()}
+                {targetZoomedGuard.avatarSrc ? <img src={targetZoomedGuard.avatarSrc} alt={`${targetZoomedGuard.name} profile`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : targetZoomedGuard.name.substring(0, 2).toUpperCase()}
               </div>
               <div style={{ textAlign: 'center', width: '100%' }}>
                 <h2 style={{ margin: '0 0 4px 0', fontSize: '20px', color: '#1e293b' }}>{targetZoomedGuard.name}</h2>

@@ -2,7 +2,7 @@
 import { createBrowserClient } from '@supabase/ssr'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { BrandProvider, useBrand } from '@/context/BrandContext'
 import { ProjectProvider, useProject } from '@/context/ProjectContext'
 
@@ -30,13 +30,15 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [isBrandingLoaded, setIsBrandingLoaded] = useState(false)
   const [isProjectsLoading, setIsProjectsLoading] = useState(true)
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabase = useMemo(
+    () => createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ),
+    []
   )
   
-  useEffect(() => {
-    async function syncGlobalSystemConfiguration() {
+  const syncGlobalSystemConfiguration = useCallback(async () => {
       try {
         let assignedProjectName: string | null = null
         let detectedRole: string | null = null
@@ -121,8 +123,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       } finally {
         setIsProjectsLoading(false)
       }
-    }
+  }, [router, setBrandName, setLogoUrl, setProjectId, setThemeColor, supabase])
 
+  useEffect(() => {
     syncGlobalSystemConfiguration()
 
     const realTimeChannel = supabase
@@ -135,7 +138,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     return () => {
       supabase.removeChannel(realTimeChannel)
     }
-  }, [supabase, router, setProjectId])
+  }, [supabase, syncGlobalSystemConfiguration])
 
   const handleProjectDropdownChange = (newSlug: string) => {
     setSelectedProject(newSlug)
@@ -243,7 +246,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '35px 24px 25px 24px', display: 'flex', alignItems: 'center', gap: '14px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             <div style={{ width: '38px', height: '38px', backgroundColor: 'white', borderRadius: '8px', color: themeColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', overflow: 'hidden', flexShrink: 0 }}>
-              {logoUrl ? <img src={logoUrl} style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : brandName?.substring(0,1)}
+              {logoUrl ? <img src={logoUrl} alt={`${brandName} logo`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : brandName?.substring(0,1)}
             </div>
             <div style={{ fontSize: '20px', fontWeight: '800', letterSpacing: '0.5px', color: 'white' }}>{brandName}</div>
           </div>

@@ -1,5 +1,5 @@
 'use client'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import AttendanceTile from './components/AttendanceTile'
@@ -11,6 +11,11 @@ const supabase = createClient(
 
 function PersonalDashboardContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const guardIdFromUrl = searchParams.get('guard_id')
+  const guardNameFromUrl = searchParams.get('guard_name')
+  const projectIdFromUrl = searchParams.get('project_id')
+  const projectNameFromUrl = searchParams.get('project_name')
   
   const [guardId, setGuardId] = useState<string | null>(null)
   const [guardName, setGuardName] = useState('Loading Officer...')
@@ -18,14 +23,31 @@ function PersonalDashboardContent() {
   const [projectId, setProjectId] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
+  const effectiveGuardId = guardId || guardIdFromUrl
+  const effectiveProjectId = projectId || projectIdFromUrl
+  const effectiveGuardName = guardNameFromUrl || guardName
+  const effectiveSiteTitle = projectNameFromUrl ? projectNameFromUrl.toUpperCase() : (projectIdFromUrl && siteTitle === 'LOADING ASSIGNED POST...' ? 'ASSIGNED POST DUTY' : siteTitle)
+
   useEffect(() => {
     async function syncGuardDatabaseProfile() {
-      const localGuardId = sessionStorage.getItem('active_guard_id')
+      const localGuardId = guardIdFromUrl || sessionStorage.getItem('active_guard_id') || localStorage.getItem('active_guard_id')
       
       if (!localGuardId) {
         console.warn("No active guard token found in session storage. Redirecting...")
         router.replace('/mobile')
         return
+      }
+
+      sessionStorage.setItem('active_guard_id', localGuardId)
+      localStorage.setItem('active_guard_id', localGuardId)
+
+      if (guardNameFromUrl) {
+        setGuardName(guardNameFromUrl)
+      }
+
+      if (projectIdFromUrl) {
+        setProjectId(projectIdFromUrl)
+        setSiteTitle(projectNameFromUrl ? projectNameFromUrl.toUpperCase() : 'ASSIGNED POST DUTY')
       }
 
       try {
@@ -37,7 +59,6 @@ function PersonalDashboardContent() {
 
         if (guardError || !guardData) {
           console.error("Guard profile not found in database:", guardError)
-          router.replace('/mobile')
           return
         }
 
@@ -56,6 +77,9 @@ function PersonalDashboardContent() {
             setSiteTitle(projectData.name.toUpperCase())
             // Backwards compatibility for child steps tracking names
             sessionStorage.setItem('ras_project_title', projectData.name)
+            localStorage.setItem('ras_project_title', projectData.name)
+          } else {
+            setSiteTitle('ASSIGNED POST DUTY')
           }
         } else {
           setSiteTitle('UNASSIGNED POST DUTY')
@@ -67,14 +91,16 @@ function PersonalDashboardContent() {
     }
 
     syncGuardDatabaseProfile()
-  }, [router])
+  }, [router, guardIdFromUrl, guardNameFromUrl, projectIdFromUrl, projectNameFromUrl])
 
   const handleTileNavigation = (routeTarget: string) => {
-    router.push(`/mobile/${routeTarget}?project_id=${projectId || ''}&guard_id=${guardId || ''}`)
+    router.push(`/mobile/${routeTarget}?project_id=${effectiveProjectId || ''}&guard_id=${effectiveGuardId || ''}`)
   }
 
   const handleSecureLogout = () => {
     sessionStorage.clear()
+    localStorage.removeItem('active_guard_id')
+    localStorage.removeItem('ras_project_title')
     router.replace('/mobile')
   }
 
@@ -100,9 +126,9 @@ function PersonalDashboardContent() {
       {/* 🏢 BRANDING ASSIGNED LIVE POST CARD */}
       <div style={{ backgroundColor: '#25479a', borderRadius: '24px', padding: '24px', marginBottom: '20px', boxShadow: '0 10px 20px -5px rgba(37, 71, 154, 0.25)' }}>
         <span style={{ color: '#93c5fd', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>Assigned Post Duty</span>
-        <h2 style={{ fontSize: '22px', fontWeight: '800', margin: '4px 0 0 0', color: '#ffffff', letterSpacing: '-0.2px' }}>{siteTitle}</h2>
+        <h2 style={{ fontSize: '22px', fontWeight: '800', margin: '4px 0 0 0', color: '#ffffff', letterSpacing: '-0.2px' }}>{effectiveSiteTitle}</h2>
         <div style={{ width: '30px', height: '3px', backgroundColor: '#38bdf8', marginTop: '14px', borderRadius: '2px' }}></div>
-        <p style={{ margin: '14px 0 0 0', color: '#e0f2fe', fontSize: '14px', fontWeight: '500' }}>Officer: <strong style={{ color: '#ffffff', fontWeight: '700' }}>{guardName}</strong></p>
+        <p style={{ margin: '14px 0 0 0', color: '#e0f2fe', fontSize: '14px', fontWeight: '500' }}>Officer: <strong style={{ color: '#ffffff', fontWeight: '700' }}>{effectiveGuardName}</strong></p>
       </div>
 
       {/* POLICY RULES PROTOCOL INFORMATIONAL BANNER */}
@@ -118,8 +144,8 @@ function PersonalDashboardContent() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', maxWidth: '480px', margin: '0 auto' }}>
         
         {/* Render child component cleanly checking local state tokens */}
-        {guardId ? (
-          <AttendanceTile guardId={guardId} projectId={projectId} />
+        {effectiveGuardId ? (
+          <AttendanceTile guardId={effectiveGuardId} projectId={effectiveProjectId} />
         ) : (
           <div style={{ backgroundColor: '#ffffff', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', border: '1px solid #eef2f6' }}>
             <span style={{ fontSize: '12px', color: '#64748b' }}>Syncing Module...</span>
@@ -211,11 +237,11 @@ function PersonalDashboardContent() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', borderBottom: '1px solid #f1f5f9', paddingBottom: '25px' }}>
               <div>
                 <label style={{ fontSize: '10px', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active Guard Identity</label>
-                <div style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', marginTop: '2px' }}>{guardName}</div>
+                <div style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', marginTop: '2px' }}>{effectiveGuardName}</div>
               </div>
               <div>
                 <label style={{ fontSize: '10px', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Operational Post Command</label>
-                <div style={{ fontSize: '13.5px', fontWeight: '600', color: '#475569', marginTop: '2px', lineHeight: '1.3' }}>{siteTitle}</div>
+                <div style={{ fontSize: '13.5px', fontWeight: '600', color: '#475569', marginTop: '2px', lineHeight: '1.3' }}>{effectiveSiteTitle}</div>
               </div>
               <div>
                 <label style={{ fontSize: '10px', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Terminal Sync Mode</label>

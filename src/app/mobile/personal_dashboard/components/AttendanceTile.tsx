@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -15,6 +15,8 @@ interface AttendanceTileProps {
 export default function AttendanceTile({ guardId, projectId }: AttendanceTileProps) {
   const [isClockedIn, setIsClockedIn] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [shiftStartedAt, setShiftStartedAt] = useState<string | null>(null)
+  const [isClockOutSubmitting, setIsClockOutSubmitting] = useState(false)
   const [showCamera, setShowCamera] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
   
@@ -35,14 +37,58 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
   useEffect(() => {
     let interval: NodeJS.Timeout
     if (isClockedIn) {
+      const syncElapsed = () => {
+        if (!shiftStartedAt) {
+          setElapsedSeconds(prev => prev + 1)
+          return
+        }
+
+        const startedAt = new Date(shiftStartedAt).getTime()
+        const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+        setElapsedSeconds(elapsed)
+      }
+
+      syncElapsed()
       interval = setInterval(() => {
-        setElapsedSeconds(prev => prev + 1)
+        syncElapsed()
       }, 1000)
     } else {
       setElapsedSeconds(0)
     }
     return () => clearInterval(interval)
-  }, [isClockedIn])
+  }, [isClockedIn, shiftStartedAt])
+
+  const restoreActiveShift = useCallback(async () => {
+    if (!guardId) return null
+
+    const { data, error } = await supabase
+      .from('guard_attendance')
+      .select('id, clock_in_time')
+      .eq('guard_id', guardId)
+      .is('clock_out_time', null)
+      .order('clock_in_time', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Failed to restore active attendance session:', error)
+      return null
+    }
+
+    if (data) {
+      setShiftStartedAt(data.clock_in_time)
+      setIsClockedIn(true)
+      return data
+    }
+
+    setShiftStartedAt(null)
+    setIsClockedIn(false)
+    return null
+  }, [guardId])
+
+  useEffect(() => {
+    restoreActiveShift()
+  }, [restoreActiveShift])
 
   const stopCameraStream = () => {
     if (streamRef.current) {
@@ -56,6 +102,14 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
   }
 
   const startCameraStream = async () => {
+    const activeShift = await restoreActiveShift()
+    if (activeShift) {
+      setToastMessage('You are already clocked in. Sign out before starting a new shift.')
+      setToastColor('#10b981')
+      setShowCustomToast(true)
+      return
+    }
+
     setShowCamera(true)
     setCameraError(null)
     setCapturedImageData(null)
@@ -69,7 +123,7 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
       }
-    } catch (err: any) {
+    } catch {
       setCameraError("Camera access denied. Please check device application permissions.")
     }
   }
@@ -101,7 +155,18 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
 
       // Live write operation directly inside database rows
       if (guardId) {
-        const { error: dbError } = await supabase
+        const activeShift = await restoreActiveShift()
+        if (activeShift) {
+          setShowCamera(false)
+          setCapturedImageData(null)
+          setIsSuccessState(false)
+          setToastMessage('Existing active shift restored. Sign out before starting a new shift.')
+          setToastColor('#10b981')
+          setShowCustomToast(true)
+          return
+        }
+
+        const { data: attendanceLog, error: dbError } = await supabase
           .from('guard_attendance')
           .insert([
             {
@@ -111,12 +176,18 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
               status: 'CLOCKED_IN'
             }
           ])
+          .select('id, clock_in_time')
+          .single()
 
         if (dbError) {
           console.error("Supabase Log Error:", dbError)
           setCameraError(`Database rejected logs: ${dbError.message}`)
           setIsSuccessState(false)
           return
+        }
+
+        if (attendanceLog) {
+          setShiftStartedAt(attendanceLog.clock_in_time)
         }
       }
 
@@ -135,14 +206,41 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
   }
 
   // Handle dynamic checkout workflow with clean confirmation UI
-  const executeClockOut = () => {
-    setIsClockedIn(false)
-    setShowSignOutConfirm(false)
-    
-    // Trigger custom notification using our approved style (Crimson layout red)
-    setToastMessage('Duty shift logged out successfully.')
-    setToastColor('#ef4444')
-    setShowCustomToast(true)
+  const executeClockOut = async () => {
+    if (!guardId) return
+
+    setIsClockOutSubmitting(true)
+
+    try {
+      const { data: closedRows, error: updateError } = await supabase
+        .from('guard_attendance')
+        .update({
+          clock_out_time: new Date().toISOString(),
+          status: 'CLOCKED_OUT'
+        })
+        .eq('guard_id', guardId)
+        .is('clock_out_time', null)
+        .select('id')
+
+      if (updateError) throw updateError
+      if (!closedRows || closedRows.length === 0) {
+        throw new Error('No active attendance session found to close.')
+      }
+
+      setIsClockedIn(false)
+      setShiftStartedAt(null)
+      setShowSignOutConfirm(false)
+
+      setToastMessage('Duty shift logged out successfully.')
+      setToastColor('#ef4444')
+      setShowCustomToast(true)
+    } catch (err: any) {
+      setToastMessage(err.message || 'Failed to sign out shift.')
+      setToastColor('#ef4444')
+      setShowCustomToast(true)
+    } finally {
+      setIsClockOutSubmitting(false)
+    }
   }
 
   useEffect(() => {
@@ -241,9 +339,18 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
               </button>
             </div>
           ) : (
-            <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#64748b', fontWeight: '500', lineHeight: '1.3' }}>
-              Sign-In Shift
-            </p>
+            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <p style={{ margin: 0, fontSize: '11px', color: '#64748b', fontWeight: '500', lineHeight: '1.3' }}>
+                Sign-In Shift
+              </p>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); startCameraStream(); }}
+                style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '7px 14px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16, 185, 129, 0.15)' }}
+              >
+                Sign In
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -296,7 +403,7 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
             <p style={{ margin: '0 0 24px 0', fontSize: '13px', color: '#64748b', lineHeight: '1.5', fontWeight: '500' }}>Are you sure you want to end your active duty shift right now? Your cumulative shift timeline tally will be safely locked.</p>
             <div style={{ display: 'flex', gap: '12px' }}>
               <button onClick={() => setShowSignOutConfirm(false)} style={{ flex: 1, height: '44px', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '12px', color: '#475569', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={executeClockOut} style={{ flex: 1, height: '44px', backgroundColor: '#ef4444', border: 'none', borderRadius: '12px', color: 'white', fontSize: '13px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)' }}>Sign Out</button>
+              <button onClick={executeClockOut} disabled={isClockOutSubmitting} style={{ flex: 1, height: '44px', backgroundColor: isClockOutSubmitting ? '#fca5a5' : '#ef4444', border: 'none', borderRadius: '12px', color: 'white', fontSize: '13px', fontWeight: '700', cursor: isClockOutSubmitting ? 'not-allowed' : 'pointer', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)' }}>{isClockOutSubmitting ? 'Signing Out...' : 'Sign Out'}</button>
             </div>
           </div>
         </div>

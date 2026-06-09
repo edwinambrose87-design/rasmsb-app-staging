@@ -11,9 +11,6 @@ export default function SOPPage() {
     3: 'en'
   })
 
-  // FIXED: All cards are now pre-marked as translated instantly upon creation!
-  const [translatedCards] = useState<number[]>([1, 2, 3]) 
-
   // Hardcoded translation database matrix for exact 1-to-1 layout preservation
   const translations: { [key: number]: { ms: string; ne: string } } = {
     1: {
