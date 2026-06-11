@@ -4,21 +4,15 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
-const CONTACT_CATEGORIES = [
-  'BOMBA (FIRE DEPARTMENT)',
-  'POLICE (POLIS DIRAJA MALAYSIA)',
-  'HOSPITAL (MEDICAL EMERGENCY)',
-  'MANAGEMENT CONTACT DETAILS'
-]
+type LanguageCode = 'en' | 'ms' | 'ne'
 
-interface EmergencyContact {
+interface SopItem {
   id?: string
-  type?: 'contact' | 'category'
-  category?: string
-  name?: string
-  role?: string
-  phone?: string
-  email?: string
+  title?: string
+  content_en?: string
+  content_ms?: string
+  content_ne?: string
+  last_updated?: string
 }
 
 const supabase = createClient(
@@ -26,61 +20,55 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-function MobileHelplinesContent() {
+function MobileSopHandbookContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const projectId = searchParams.get('project_id')
   const guardId = searchParams.get('guard_id')
 
-  const [projectName, setProjectName] = useState('Emergency Contacts')
-  const [contacts, setContacts] = useState<EmergencyContact[]>([])
+  const [projectName, setProjectName] = useState('Site SOPs')
+  const [sops, setSops] = useState<SopItem[]>([])
+  const [selectedLanguages, setSelectedLanguages] = useState<Record<string, LanguageCode>>({})
+  const [expandedSopIds, setExpandedSopIds] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
-  const fetchContacts = useCallback(async () => {
+  const fetchSops = useCallback(async () => {
     setIsLoading(true)
     setErrorMessage(null)
 
     try {
       if (!projectId) {
-        setContacts([])
-        setProjectName('Emergency Contacts')
+        setProjectName('Site SOPs')
+        setSops([])
         return
       }
 
       const { data, error } = await supabase
         .from('projects')
-        .select('name, contacts_list')
+        .select('name, sop_list')
         .eq('id', projectId)
         .maybeSingle()
 
       if (error) throw error
-      setProjectName(data?.name || 'Emergency Contacts')
-      setContacts((data?.contacts_list || []) as EmergencyContact[])
+
+      const siteSops = normalizeSops((data?.sop_list || []) as SopItem[])
+      setProjectName(data?.name || 'Site SOPs')
+      setSops(siteSops)
+      setSelectedLanguages(Object.fromEntries(siteSops.map(sop => [getSopId(sop), 'en'])) as Record<string, LanguageCode>)
+      setExpandedSopIds(siteSops.map(getSopId))
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to load emergency contacts.')
-      setContacts([])
+      setErrorMessage(err.message || 'Failed to load site SOPs.')
+      setSops([])
     } finally {
       setIsLoading(false)
     }
   }, [projectId])
 
   useEffect(() => {
-    fetchContacts()
-  }, [fetchContacts])
-
-  const groupedContacts = useMemo(() => {
-    const contactCategories = contacts
-      .map(contact => contact.category)
-      .filter(Boolean) as string[]
-    const allCategories = Array.from(new Set([...CONTACT_CATEGORIES, ...contactCategories]))
-
-    return allCategories.map(category => ({
-      category,
-      contacts: contacts.filter(contact => contact.type !== 'category' && (contact.category || CONTACT_CATEGORIES[3]) === category)
-    }))
-  }, [contacts])
+    fetchSops()
+  }, [fetchSops])
 
   const goBack = () => {
     const params = new URLSearchParams()
@@ -95,6 +83,26 @@ function MobileHelplinesContent() {
     localStorage.removeItem('ras_project_title')
     router.replace('/mobile')
   }
+
+  const toggleSop = (sopId: string) => {
+    setExpandedSopIds(current => current.includes(sopId) ? current.filter(id => id !== sopId) : [...current, sopId])
+  }
+
+  const changeLanguage = (sopId: string, language: LanguageCode) => {
+    setSelectedLanguages(current => ({ ...current, [sopId]: language }))
+  }
+
+  const renderedSops = useMemo(() => sops.map((sop, index) => {
+    const sopId = getSopId(sop, index)
+    const language = selectedLanguages[sopId] || 'en'
+    return {
+      ...sop,
+      sopId,
+      language,
+      isExpanded: expandedSopIds.includes(sopId),
+      visibleContent: getSopContent(sop, language)
+    }
+  }), [expandedSopIds, selectedLanguages, sops])
 
   return (
     <div style={{ backgroundColor: '#f5f7fa', minHeight: '100vh', width: '100vw', padding: '0 20px 30px 20px', boxSizing: 'border-box', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b', position: 'relative', overflowX: 'hidden' }}>
@@ -118,39 +126,49 @@ function MobileHelplinesContent() {
           &lt;
         </button>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', letterSpacing: '1px' }}>SITE HELPLINES</div>
+          <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', letterSpacing: '1px' }}>SITE SOP HANDBOOK</div>
           <div style={{ fontSize: '15px', fontWeight: '900', color: '#1e3a8a' }}>{projectName}</div>
         </div>
       </div>
 
-      {isLoading && <div style={messageStyle}>Loading helplines...</div>}
+      {isLoading && <div style={messageStyle}>Loading site SOPs...</div>}
       {!isLoading && errorMessage && <div style={{ ...messageStyle, color: '#b91c1c', borderColor: '#fecaca', backgroundColor: '#fef2f2' }}>{errorMessage}</div>}
-      {!isLoading && !errorMessage && contacts.length === 0 && <div style={messageStyle}>No emergency contacts configured for this site.</div>}
+      {!isLoading && !errorMessage && sops.length === 0 && <div style={messageStyle}>No SOPs configured for this site.</div>}
 
-      {!isLoading && !errorMessage && contacts.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-          {groupedContacts.map(section => section.contacts.length > 0 && (
-            <section key={section.category} style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '18px', overflow: 'hidden', boxShadow: '0 10px 18px rgba(15, 23, 42, 0.04)' }}>
-              <div style={{ backgroundColor: '#eff6ff', color: '#1e3a8a', fontSize: '12px', fontWeight: '900', letterSpacing: '0.3px', padding: '13px 16px', borderBottom: '1px solid #dbeafe' }}>
-                {section.category}
-              </div>
-              <div style={{ padding: '4px 16px' }}>
-                {section.contacts.map((contact, index) => (
-                  <a key={contact.id || `${contact.name}-${index}`} href={`tel:${(contact.phone || '').replace(/[^\d+]/g, '')}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', padding: '16px 0', borderBottom: index === section.contacts.length - 1 ? 'none' : '1px solid #f1f5f9', textDecoration: 'none' }}>
-                    <div>
-                      <div style={{ color: '#0f172a', fontSize: '15px', fontWeight: '900' }}>{contact.name}</div>
-                      {contact.role && <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '700', marginTop: '4px' }}>{contact.role}</div>}
-                      <div style={{ color: '#1e3a8a', fontSize: '13px', fontWeight: '800', marginTop: '6px' }}>{contact.phone}</div>
-                    </div>
-                    <div aria-label={`Call ${contact.name}`} style={{ minWidth: '48px', width: '48px', height: '48px', borderRadius: '50%', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 18px rgba(5, 150, 105, 0.25)', border: '3px solid #ecfdf5' }}>
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.28-.28.68-.37 1.05-.25 1.15.38 2.39.58 3.65.58.58 0 1.04.46 1.04 1.04v3.49c0 .58-.46 1.04-1.04 1.04C10.64 21.08 2.92 13.36 2.92 3.89c0-.58.46-1.04 1.04-1.04h3.5c.58 0 1.04.46 1.04 1.04 0 1.26.2 2.5.58 3.65.11.37.03.77-.26 1.05l-2.2 2.2z" fill="currentColor" />
-                      </svg>
-                    </div>
-          </a>
-        ))}
-      </div>
-    </section>
+      {!isLoading && !errorMessage && renderedSops.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {renderedSops.map(sop => (
+            <section key={sop.sopId} style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '18px', overflow: 'hidden', boxShadow: '0 10px 18px rgba(15, 23, 42, 0.04)' }}>
+              <button onClick={() => toggleSop(sop.sopId)} style={{ width: '100%', border: 'none', backgroundColor: '#eff6ff', color: '#1e3a8a', padding: '14px 16px', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
+                <span>
+                  <span style={{ display: 'block', fontSize: '13px', fontWeight: '900', lineHeight: 1.35 }}>{sop.title}</span>
+                  <span style={{ display: 'block', fontSize: '10px', color: '#64748b', fontWeight: '800', marginTop: '4px' }}>UPDATED: {formatDisplayDate(sop.last_updated || '')}</span>
+                </span>
+                <span style={{ fontSize: '18px', fontWeight: '900', transform: sop.isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>⌄</span>
+              </button>
+
+              {sop.isExpanded && (
+                <div style={{ padding: '16px' }}>
+                  <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
+                    {[
+                      { code: 'en', label: 'EN' },
+                      { code: 'ms', label: 'BM' },
+                      { code: 'ne', label: 'NE' }
+                    ].map(language => {
+                      const isActive = sop.language === language.code
+                      return (
+                        <button key={language.code} onClick={() => changeLanguage(sop.sopId, language.code as LanguageCode)} style={{ minWidth: '44px', border: 'none', borderRadius: '10px', padding: '8px 10px', backgroundColor: isActive ? '#1e3a8a' : '#f1f5f9', color: isActive ? '#ffffff' : '#475569', fontSize: '11px', fontWeight: '900', cursor: 'pointer' }}>
+                          {language.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div style={{ color: '#334155', fontSize: '13px', lineHeight: 1.7, fontWeight: '600', whiteSpace: 'pre-line' }}>
+                    {sop.visibleContent || 'No content added for this language.'}
+                  </div>
+                </div>
+              )}
+            </section>
           ))}
         </div>
       )}
@@ -209,6 +227,33 @@ function MobileHelplinesContent() {
   )
 }
 
+function normalizeSops(sops: SopItem[]) {
+  return sops
+    .filter(sop => sop && (sop.title || sop.content_en || sop.content_ms || sop.content_ne))
+    .map((sop, index) => ({
+      ...sop,
+      id: getSopId(sop, index),
+      title: sop.title || 'Untitled SOP'
+    }))
+}
+
+function getSopId(sop: SopItem, fallbackIndex = 0) {
+  return sop.id || `${sop.title || 'sop'}-${fallbackIndex}`
+}
+
+function getSopContent(sop: SopItem, language: LanguageCode) {
+  if (language === 'ms') return sop.content_ms || sop.content_en || ''
+  if (language === 'ne') return sop.content_ne || sop.content_en || ''
+  return sop.content_en || ''
+}
+
+function formatDisplayDate(dateStr: string) {
+  if (!dateStr) return '-'
+  const [year, month, day] = dateStr.split('-')
+  if (!year || !month || !day) return dateStr
+  return `${day}/${month}/${year}`
+}
+
 const messageStyle = {
   backgroundColor: '#ffffff',
   border: '1px solid #e2e8f0',
@@ -241,10 +286,10 @@ const drawerButtonStyle = {
   padding: '0 14px'
 }
 
-export default function MobileHelplinesPage() {
+export default function MobileSopHandbookPage() {
   return (
-    <Suspense fallback={<div style={{ padding: '20px', color: '#64748b', fontWeight: '800' }}>Loading helplines...</div>}>
-      <MobileHelplinesContent />
+    <Suspense fallback={<div style={{ padding: '20px', color: '#64748b', fontWeight: '800' }}>Loading site SOPs...</div>}>
+      <MobileSopHandbookContent />
     </Suspense>
   )
 }
