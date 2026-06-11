@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useSearchParams } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { useBrand } from '@/context/BrandContext'
+import { autoCloseExpiredAttendanceRows } from '@/lib/attendanceShift'
 
 type ShiftType = 'DAY' | 'NIGHT'
 
@@ -76,9 +77,9 @@ function AttendanceReportContent() {
   const [activeProject, setActiveProject] = useState<ProjectRow | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [scopeNotice, setScopeNotice] = useState<string | null>(null)
   const startDateRef = useRef<HTMLInputElement | null>(null)
   const endDateRef = useRef<HTMLInputElement | null>(null)
+  const fetchRequestRef = useRef(0)
 
   const supabase = useMemo(
     () => createBrowserClient(
@@ -93,9 +94,12 @@ function AttendanceReportContent() {
   const textBg = themeColor === '#dc2626' ? '#b91c1c' : '#1d4ed8'
 
   const fetchAttendance = useCallback(async () => {
+    const requestId = fetchRequestRef.current + 1
+    fetchRequestRef.current = requestId
+
     setIsLoading(true)
     setErrorMessage(null)
-    setScopeNotice(null)
+    setAttendanceRecords([])
 
     try {
       let projectId: string | null = null
@@ -108,10 +112,22 @@ function AttendanceReportContent() {
           .maybeSingle()
 
         if (projectError) throw projectError
-        setActiveProject(projectData)
-        projectId = projectData?.id || null
+        if (!projectData) {
+          if (fetchRequestRef.current === requestId) {
+            setActiveProject(null)
+            setAttendanceRecords([])
+          }
+          return
+        }
+
+        if (fetchRequestRef.current === requestId) {
+          setActiveProject(projectData)
+        }
+        projectId = projectData.id
       } else {
-        setActiveProject(null)
+        if (fetchRequestRef.current === requestId) {
+          setActiveProject(null)
+        }
       }
 
       const rangeStart = new Date(`${startDate}T00:00:00`)
@@ -132,26 +148,7 @@ function AttendanceReportContent() {
       const { data: attendanceData, error: attendanceError } = await attendanceQuery
       if (attendanceError) throw attendanceError
 
-      let rows = (attendanceData || []) as AttendanceRow[]
-
-      if (projectId && rows.length === 0) {
-        const { data: allAttendanceData, error: allAttendanceError } = await supabase
-          .from('guard_attendance')
-          .select('id, guard_id, project_id, clock_in_time, clock_out_time, status, scheduled_shift, actual_shift, attendance_type, shift_exception_reason')
-          .gte('clock_in_time', rangeStart.toISOString())
-          .lt('clock_in_time', rangeEnd.toISOString())
-          .order('clock_in_time', { ascending: false })
-
-        if (allAttendanceError) throw allAttendanceError
-
-        const fallbackRows = (allAttendanceData || []) as AttendanceRow[]
-        if (fallbackRows.length > 0) {
-          rows = fallbackRows
-          setScopeNotice(
-            `Attendance rows exist for this date range, but none are linked to ${activeProjectSlug || 'the selected project'}. Showing available rows so you can verify project_id mapping.`
-          )
-        }
-      }
+      const rows = await autoCloseExpiredAttendanceRows(supabase, (attendanceData || []) as AttendanceRow[])
 
       const guardIds = Array.from(new Set(rows.map(row => row.guard_id).filter(Boolean))) as string[]
       const guardsById = new Map<string, GuardRow>()
@@ -166,12 +163,18 @@ function AttendanceReportContent() {
         ;((guardData || []) as GuardRow[]).forEach(guard => guardsById.set(guard.id, guard))
       }
 
-      setAttendanceRecords(rows.map(row => mapAttendanceRecord(row, guardsById.get(row.guard_id || ''))))
+      if (fetchRequestRef.current === requestId) {
+        setAttendanceRecords(rows.map(row => mapAttendanceRecord(row, guardsById.get(row.guard_id || ''))))
+      }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to load attendance records.')
-      setAttendanceRecords([])
+      if (fetchRequestRef.current === requestId) {
+        setErrorMessage(err.message || 'Failed to load attendance records.')
+        setAttendanceRecords([])
+      }
     } finally {
-      setIsLoading(false)
+      if (fetchRequestRef.current === requestId) {
+        setIsLoading(false)
+      }
     }
   }, [activeProjectSlug, endDate, startDate, supabase])
 
@@ -255,25 +258,18 @@ function AttendanceReportContent() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-          <div style={{ backgroundColor: 'white', padding: '8px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px', minHeight: '58px', boxSizing: 'border-box', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.03)' }}>
-            <label onClick={() => openDatePicker(startDateRef.current)} style={{ display: 'grid', gridTemplateColumns: '1fr 34px', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '6px 8px 6px 12px', minWidth: '150px', borderRadius: '9px', backgroundColor: '#f8fafc' }}>
-              <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#64748b' }}>START DATE</span>
-                <input ref={startDateRef} type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} style={{ color: themeColor, fontWeight: '700', fontSize: '13px', border: 'none', outline: 'none', background: 'transparent', cursor: 'pointer', width: '110px' }} />
-              </span>
-              <button type="button" onClick={(event) => { event.preventDefault(); openDatePicker(startDateRef.current) }} aria-label="Open start date calendar" style={{ width: '34px', height: '34px', border: 'none', borderRadius: '8px', backgroundColor: '#ffffff', color: themeColor, fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                📅
-              </button>
-            </label>
-            <label onClick={() => openDatePicker(endDateRef.current)} style={{ display: 'grid', gridTemplateColumns: '1fr 34px', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '6px 8px 6px 12px', minWidth: '150px', borderRadius: '9px', backgroundColor: '#f8fafc' }}>
-              <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#64748b' }}>END DATE</span>
-                <input ref={endDateRef} type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} style={{ color: themeColor, fontWeight: '700', fontSize: '13px', border: 'none', outline: 'none', background: 'transparent', cursor: 'pointer', width: '110px' }} />
-              </span>
-              <button type="button" onClick={(event) => { event.preventDefault(); openDatePicker(endDateRef.current) }} aria-label="Open end date calendar" style={{ width: '34px', height: '34px', border: 'none', borderRadius: '8px', backgroundColor: '#ffffff', color: themeColor, fontSize: '18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                📅
-              </button>
-            </label>
+          <div style={{ backgroundColor: 'white', padding: '10px 20px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '15px', height: '56px', boxSizing: 'border-box' }}>
+            <div onClick={() => openDatePicker(startDateRef.current)} style={{ display: 'flex', flexDirection: 'column', gap: '2px', position: 'relative', cursor: 'pointer' }}>
+              <label style={{ fontSize: '9px', fontWeight: 'bold', color: '#64748b', letterSpacing: '0.5px' }}>START DATE</label>
+              <span style={{ color: themeColor, fontWeight: '600', fontSize: '13px' }}>{formatDisplayDate(startDate)}</span>
+              <input ref={startDateRef} type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
+            </div>
+            <div style={{ color: '#cbd5e1', fontWeight: 'bold' }}>&rarr;</div>
+            <div onClick={() => openDatePicker(endDateRef.current)} style={{ display: 'flex', flexDirection: 'column', gap: '2px', position: 'relative', cursor: 'pointer' }}>
+              <label style={{ fontSize: '9px', fontWeight: 'bold', color: '#64748b', letterSpacing: '0.5px' }}>END DATE</label>
+              <span style={{ color: themeColor, fontWeight: '600', fontSize: '13px' }}>{formatDisplayDate(endDate)}</span>
+              <input ref={endDateRef} type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
+            </div>
           </div>
           <button onClick={handleExportPdf} disabled={attendanceRecords.length === 0} style={{ backgroundColor: attendanceRecords.length === 0 ? '#94a3b8' : '#10b981', color: 'white', border: 'none', padding: '0 24px', borderRadius: '10px', fontSize: '14px', fontWeight: 'bold', cursor: attendanceRecords.length === 0 ? 'not-allowed' : 'pointer', height: '56px' }}>
             Download Report
@@ -301,12 +297,6 @@ function AttendanceReportContent() {
 
       {!isLoading && !errorMessage && attendanceRecords.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '40px', maxWidth: '1200px', width: '100%' }}>
-          {scopeNotice && (
-            <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: '10px', padding: '14px 18px', fontSize: '13px', fontWeight: '700', lineHeight: 1.5 }}>
-              {scopeNotice}
-            </div>
-          )}
-
           {activeTimelineDates.map((targetDate) => {
             const dayShiftGuards = attendanceRecords.filter(record => record.date === targetDate && record.shift === 'DAY')
             const nightShiftGuards = attendanceRecords.filter(record => record.date === targetDate && record.shift === 'NIGHT')
@@ -382,7 +372,7 @@ function AttendanceShiftTable({
                     {row.attendanceType === 'OT' ? (
                       <span style={{ backgroundColor: '#ea580c', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '3px 7px', borderRadius: '4px' }}>OT</span>
                     ) : (
-                      <span style={{ backgroundColor: row.arrivalStatus === 'LATE' ? '#ea580c' : '#10b981', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '3px 7px', borderRadius: '4px' }}>{row.arrivalStatus}</span>
+                      <span style={{ backgroundColor: row.arrivalStatus === 'LATE' ? '#dc2626' : '#10b981', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '3px 7px', borderRadius: '4px' }}>{row.arrivalStatus}</span>
                     )}
                     <span style={{ backgroundColor: row.dutyStatus === 'ACTIVE' ? '#2563eb' : '#64748b', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '3px 7px', borderRadius: '4px' }}>{row.dutyStatus}</span>
                   </div>
@@ -427,12 +417,20 @@ function normalizeShift(shiftType?: string | null): ShiftType | null {
 }
 
 function inferShiftFromClockIn(clockIn: Date): ShiftType {
-  return clockIn.getHours() >= 20 || clockIn.getHours() < 8 ? 'NIGHT' : 'DAY'
+  const minutes = clockIn.getHours() * 60 + clockIn.getMinutes()
+  const dayHandoverStart = 7 * 60 + 45
+  const nightHandoverStart = 19 * 60 + 45
+
+  if (minutes >= nightHandoverStart || minutes < dayHandoverStart) return 'NIGHT'
+  return 'DAY'
 }
 
 function isLate(clockIn: Date, shift: ShiftType) {
   const scheduledStart = new Date(clockIn)
-  scheduledStart.setHours(shift === 'DAY' ? 8 : 20, 15, 0, 0)
+  if (shift === 'NIGHT' && clockIn.getHours() < 8) {
+    scheduledStart.setDate(scheduledStart.getDate() - 1)
+  }
+  scheduledStart.setHours(shift === 'DAY' ? 8 : 20, 0, 0, 0)
   return clockIn.getTime() > scheduledStart.getTime()
 }
 
@@ -598,7 +596,7 @@ async function buildAttendancePdf({
       if (row.attendanceType === 'OT') {
         statusX += drawBadge('OT', statusX, rowTop, orange) + 4
       } else {
-        statusX += drawBadge(row.arrivalStatus, statusX, rowTop, row.arrivalStatus === 'LATE' ? orange : green) + 4
+        statusX += drawBadge(row.arrivalStatus, statusX, rowTop, row.arrivalStatus === 'LATE' ? red : green) + 4
       }
       drawBadge(row.dutyStatus, statusX, rowTop, row.dutyStatus === 'ACTIVE' ? blue : gray)
 

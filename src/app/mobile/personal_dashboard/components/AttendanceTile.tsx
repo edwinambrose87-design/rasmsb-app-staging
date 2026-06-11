@@ -1,6 +1,7 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { autoCloseExpiredAttendanceRows } from '@/lib/attendanceShift'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -74,7 +75,7 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
 
     const { data, error } = await supabase
       .from('guard_attendance')
-      .select('id, clock_in_time')
+      .select('id, clock_in_time, clock_out_time, status, actual_shift')
       .eq('guard_id', guardId)
       .is('clock_out_time', null)
       .order('clock_in_time', { ascending: false })
@@ -87,9 +88,16 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
     }
 
     if (data) {
-      setShiftStartedAt(data.clock_in_time)
+      const [checkedShift] = await autoCloseExpiredAttendanceRows(supabase, [data])
+      if (checkedShift.clock_out_time) {
+        setShiftStartedAt(null)
+        setIsClockedIn(false)
+        return null
+      }
+
+      setShiftStartedAt(checkedShift.clock_in_time)
       setIsClockedIn(true)
-      return data
+      return checkedShift
     }
 
     setShiftStartedAt(null)
@@ -99,6 +107,11 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
 
   useEffect(() => {
     restoreActiveShift()
+    const interval = setInterval(() => {
+      restoreActiveShift()
+    }, 60000)
+
+    return () => clearInterval(interval)
   }, [restoreActiveShift])
 
   const stopCameraStream = () => {
@@ -185,12 +198,13 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
           return
         }
 
+        const currentProjectId = await fetchCurrentGuardProjectId()
         const { data: attendanceLog, error: dbError } = await supabase
           .from('guard_attendance')
           .insert([
             {
               guard_id: guardId,
-              project_id: projectId || null,
+              project_id: currentProjectId || projectId || null,
               selfie_url: base64Data, 
               status: 'CLOCKED_IN',
               scheduled_shift: activeShiftDecision?.scheduledShift || getActualShift(new Date()),
@@ -306,6 +320,23 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
       attendanceType: isOt ? 'OT' : 'NORMAL',
       shiftExceptionReason: isOt ? 'OUTSIDE_SCHEDULE' : null
     }
+  }
+
+  const fetchCurrentGuardProjectId = async () => {
+    if (!guardId) return null
+
+    const { data, error } = await supabase
+      .from('guards')
+      .select('project_id')
+      .eq('id', guardId)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Failed to load latest guard project assignment:', error)
+      return null
+    }
+
+    return data?.project_id || null
   }
 
   return (
@@ -481,8 +512,12 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
 }
 
 function getActualShift(date: Date): ShiftType {
-  const hour = date.getHours()
-  return hour >= 20 || hour < 8 ? 'NIGHT' : 'DAY'
+  const minutes = date.getHours() * 60 + date.getMinutes()
+  const dayHandoverStart = 7 * 60 + 45
+  const nightHandoverStart = 19 * 60 + 45
+
+  if (minutes >= nightHandoverStart || minutes < dayHandoverStart) return 'NIGHT'
+  return 'DAY'
 }
 
 function normalizeShift(value: string): ShiftType {
