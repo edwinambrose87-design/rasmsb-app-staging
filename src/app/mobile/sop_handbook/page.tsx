@@ -57,7 +57,7 @@ function MobileSopHandbookContent() {
       setProjectName(data?.name || 'Site SOPs')
       setSops(siteSops)
       setSelectedLanguages(Object.fromEntries(siteSops.map(sop => [getSopId(sop), 'en'])) as Record<string, LanguageCode>)
-      setExpandedSopIds(siteSops.map(getSopId))
+      setExpandedSopIds(getDefaultExpandedSopIds(siteSops))
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to load site SOPs.')
       setSops([])
@@ -235,6 +235,10 @@ function normalizeSops(sops: SopItem[]) {
       id: getSopId(sop, index),
       title: sop.title || 'Untitled SOP'
     }))
+}
+
+function getDefaultExpandedSopIds(sops: SopItem[]) {
+  return sops.length > 0 ? [getSopId(sops[0])] : []
 }
 
 function getSopId(sop: SopItem, fallbackIndex = 0) {

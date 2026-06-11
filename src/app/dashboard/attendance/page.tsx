@@ -133,6 +133,7 @@ function AttendanceReportContent() {
       const rangeStart = new Date(`${startDate}T00:00:00`)
       const rangeEnd = new Date(`${endDate}T00:00:00`)
       rangeEnd.setDate(rangeEnd.getDate() + 1)
+      rangeEnd.setHours(8, 0, 0, 0)
 
       let attendanceQuery = supabase
         .from('guard_attendance')
@@ -164,7 +165,11 @@ function AttendanceReportContent() {
       }
 
       if (fetchRequestRef.current === requestId) {
-        setAttendanceRecords(rows.map(row => mapAttendanceRecord(row, guardsById.get(row.guard_id || ''))))
+        const mappedRecords = rows
+          .map(row => mapAttendanceRecord(row, guardsById.get(row.guard_id || '')))
+          .filter(record => record.date >= startDate && record.date <= endDate)
+
+        setAttendanceRecords(mappedRecords)
       }
     } catch (err: any) {
       if (fetchRequestRef.current === requestId) {
@@ -396,7 +401,7 @@ function mapAttendanceRecord(row: AttendanceRow, guard?: GuardRow): AttendanceRe
 
   return {
     id: row.id,
-    date: toInputDate(clockIn),
+    date: getAttendanceReportDate(clockIn, shift),
     shift,
     guardName: guard?.name || 'Unknown Guard',
     guardId: guard?.staff_id || 'UNLINKED',
@@ -408,6 +413,14 @@ function mapAttendanceRecord(row: AttendanceRow, guard?: GuardRow): AttendanceRe
     attendanceType,
     dutyStatus: clockOut ? normalizeStatus(row.status, 'COMPLETED') : 'ACTIVE'
   }
+}
+
+function getAttendanceReportDate(clockIn: Date, shift: ShiftType) {
+  const reportDate = new Date(clockIn)
+  if (shift === 'NIGHT' && clockIn.getHours() < 8) {
+    reportDate.setDate(reportDate.getDate() - 1)
+  }
+  return toInputDate(reportDate)
 }
 
 function normalizeShift(shiftType?: string | null): ShiftType | null {

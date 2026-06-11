@@ -100,7 +100,7 @@ function SOPContent() {
       if (requestId !== requestSequenceRef.current) return
       setActiveProject(project)
       setSops(normalizedSops)
-      setExpandedSopIds(normalizedSops.map(sop => sop.id || '').filter(Boolean))
+      setExpandedSopIds(getDefaultExpandedSopIds(normalizedSops))
       setCardLanguages(Object.fromEntries(normalizedSops.map(sop => [sop.id || '', 'en'])))
       hasLoadedProjectRef.current = true
     } catch (err: any) {
@@ -166,7 +166,7 @@ function SOPContent() {
 
       if (error) throw error
       setSops(cleanedSops)
-      setExpandedSopIds(cleanedSops.map(sop => sop.id || '').filter(Boolean))
+      setExpandedSopIds(getDefaultExpandedSopIds(cleanedSops))
       closeModal()
       showToast(successMessage)
     } catch (err: any) {
@@ -328,6 +328,10 @@ function SOPContent() {
 
 function normalizeSops(sops: SopItem[]) {
   return sops.map(cleanSop)
+}
+
+function getDefaultExpandedSopIds(sops: SopItem[]) {
+  return sops[0]?.id ? [sops[0].id] : []
 }
 
 function cleanSop(sop: SopItem): SopItem {
