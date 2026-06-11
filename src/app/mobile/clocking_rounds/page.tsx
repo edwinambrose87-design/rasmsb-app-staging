@@ -36,6 +36,13 @@ interface ParsedQrPayload {
   checkpointId: number
 }
 
+interface ScanNotice {
+  title: string
+  body: string
+  kind: 'success' | 'warning' | 'error'
+  nextAction: 'scan' | 'close'
+}
+
 declare global {
   interface Window {
     BarcodeDetector?: any
@@ -60,6 +67,8 @@ function MobileClockingRoundsContent() {
   const lastScanValueRef = useRef('')
   const activeRoundRef = useRef<PatrolRound | null>(null)
   const scannedCheckpointsRef = useRef<ScannedCheckpoint[]>([])
+  const scannedNameLocksRef = useRef<Set<string>>(new Set())
+  const isHandlingScanRef = useRef(false)
 
   const [projectName, setProjectName] = useState('Clocking Round')
   const [projectSlug, setProjectSlug] = useState('')
@@ -75,6 +84,7 @@ function MobileClockingRoundsContent() {
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [scanNotice, setScanNotice] = useState<ScanNotice | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
   const stopCamera = useCallback(() => {
@@ -105,17 +115,20 @@ function MobileClockingRoundsContent() {
       if (fallback.error) {
         setScannedCheckpoints([])
         scannedCheckpointsRef.current = []
+        scannedNameLocksRef.current = new Set()
         return
       }
       const fallbackScans = (fallback.data || []) as ScannedCheckpoint[]
       setScannedCheckpoints(fallbackScans)
       scannedCheckpointsRef.current = fallbackScans
+      scannedNameLocksRef.current = new Set(fallbackScans.map(scan => scan.name))
       return
     }
 
     const scans = (data || []) as ScannedCheckpoint[]
     setScannedCheckpoints(scans)
     scannedCheckpointsRef.current = scans
+    scannedNameLocksRef.current = new Set(scans.map(scan => scan.name))
   }, [])
 
   const fetchClockingSetup = useCallback(async () => {
@@ -174,6 +187,8 @@ function MobileClockingRoundsContent() {
         await fetchScannedCheckpoints(existingRound.id)
       } else {
         setScannedCheckpoints([])
+        scannedCheckpointsRef.current = []
+        scannedNameLocksRef.current = new Set()
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to load clocking setup.')
@@ -226,14 +241,14 @@ function MobileClockingRoundsContent() {
       const { data, error } = await supabase
         .from('clocking_rounds')
         .insert({
-        guard: guardName,
-        date: toInputDate(now),
-        start_time: formatClockTime(now),
-        end_time: '-- : --',
-        duration: 'In Progress...',
-        completed_points: 0,
-        total_points: masterCheckpoints.length,
-        missed_points: masterCheckpoints.length,
+          guard: guardName,
+          date: toInputDate(now),
+          start_time: formatClockTime(now),
+          end_time: '-- : --',
+          duration: 'In Progress...',
+          completed_points: 0,
+          total_points: masterCheckpoints.length,
+          missed_points: masterCheckpoints.length,
           project_slug: projectSlug,
           status: 'in_progress'
         })
@@ -246,6 +261,7 @@ function MobileClockingRoundsContent() {
       setActiveRound(startedRound)
       setScannedCheckpoints([])
       scannedCheckpointsRef.current = []
+      scannedNameLocksRef.current = new Set()
       setMessage('Patrol round started. Scan the first checkpoint QR.')
       await startCamera(startedRound)
     } catch (err: any) {
@@ -288,6 +304,8 @@ function MobileClockingRoundsContent() {
       activeRoundRef.current = null
       setScannedCheckpoints([])
       scannedCheckpointsRef.current = []
+      scannedNameLocksRef.current = new Set()
+      setScanNotice(null)
       setMessage('Patrol round completed successfully.')
       await fetchClockingSetup()
     } catch (err: any) {
@@ -341,7 +359,7 @@ function MobileClockingRoundsContent() {
     const scan = async () => {
       if (!videoRef.current || !context || !activeRoundRef.current) return
 
-      if (videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+      if (!isHandlingScanRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
         canvas.width = videoRef.current.videoWidth
         canvas.height = videoRef.current.videoHeight
         context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
@@ -372,6 +390,18 @@ function MobileClockingRoundsContent() {
     setIsScannerOpen(false)
   }
 
+  async function handleScanNoticeOk() {
+    const notice = scanNotice
+    setScanNotice(null)
+
+    if (!notice) return
+    if (notice.nextAction === 'scan' && activeRoundRef.current) {
+      await startCamera()
+    } else {
+      setIsScannerOpen(false)
+    }
+  }
+
   const handleManualScan = async () => {
     if (!manualQr.trim()) return
     await handleQrPayload(manualQr.trim())
@@ -379,46 +409,70 @@ function MobileClockingRoundsContent() {
   }
 
   const handleQrPayload = async (rawValue: string) => {
+    if (isHandlingScanRef.current) return
+    isHandlingScanRef.current = true
+    stopCamera()
+
     const currentRound = activeRoundRef.current
-    if (!currentRound) return
+    if (!currentRound) {
+      isHandlingScanRef.current = false
+      return
+    }
     setErrorMessage(null)
     setMessage(null)
 
     const parsed = parseQrPayload(rawValue)
     if (!parsed) {
-      setErrorMessage('This QR code is not a valid RASMSB checkpoint.')
+      showScanNotice('Invalid QR Code', 'This QR code is not a valid RASMSB checkpoint.', 'error', 'scan')
+      isHandlingScanRef.current = false
       return
     }
 
     if (parsed.projectSlug !== projectSlug) {
-      setErrorMessage('This checkpoint belongs to another site.')
+      showScanNotice('Wrong Site QR', 'This checkpoint belongs to another site.', 'error', 'scan')
+      isHandlingScanRef.current = false
       return
     }
 
     const checkpoint = masterCheckpoints.find(point => point.id === parsed.checkpointId)
     if (!checkpoint) {
-      setErrorMessage('Checkpoint is not registered under this site.')
+      showScanNotice('Unknown Checkpoint', 'Checkpoint is not registered under this site.', 'error', 'scan')
+      isHandlingScanRef.current = false
       return
     }
 
     const currentScans = scannedCheckpointsRef.current
-    if (currentScans.some(point => point.name === checkpoint.name)) {
-      setMessage(`${checkpoint.name} is already scanned for this round.`)
+    if (currentScans.some(point => point.name === checkpoint.name) || scannedNameLocksRef.current.has(checkpoint.name)) {
+      showScanNotice('Already Scanned', `${checkpoint.name} has already been scanned for this round.`, 'warning', 'scan')
+      isHandlingScanRef.current = false
       return
     }
 
+    scannedNameLocksRef.current.add(checkpoint.name)
     setIsSubmitting(true)
     try {
       const time = formatClockTime(new Date())
+      const alreadySaved = await checkpointExistsForRound(currentRound.id, checkpoint.name)
+      if (alreadySaved) {
+        const syncedScans = [...scannedCheckpointsRef.current, { id: checkpoint.id, name: checkpoint.name, time }]
+        scannedCheckpointsRef.current = syncedScans
+        setScannedCheckpoints(syncedScans)
+        showScanNotice('Already Scanned', `${checkpoint.name} was already saved for this round.`, 'warning', nextScanAction(syncedScans.length))
+        return
+      }
+
       const insertedCheckpoint = await insertCheckpointWithFallback(currentRound.id, checkpoint.name, time)
       const nextScans = [...scannedCheckpointsRef.current, insertedCheckpoint]
 
       scannedCheckpointsRef.current = nextScans
       setScannedCheckpoints(nextScans)
-      setMessage(
+      showScanNotice(
+        'Scan Successful',
         nextScans.length >= masterCheckpoints.length
-          ? `${checkpoint.name} scanned. All checkpoints completed.`
-          : `${checkpoint.name} scanned. Please scan checkpoint ${nextScans.length + 1} of ${masterCheckpoints.length}.`
+          ? `${checkpoint.name} completed. All checkpoints have been scanned.`
+          : `${checkpoint.name} completed. Tap OK to scan checkpoint ${nextScans.length + 1} of ${masterCheckpoints.length}.`,
+        'success',
+        nextScanAction(nextScans.length)
       )
 
       await supabase
@@ -430,10 +484,39 @@ function MobileClockingRoundsContent() {
         })
         .eq('id', currentRound.id)
     } catch (err: any) {
-      setErrorMessage(err.message || 'Could not save checkpoint scan.')
+      scannedNameLocksRef.current.delete(checkpoint.name)
+      showScanNotice('Scan Not Saved', err.message || 'Could not save checkpoint scan.', 'error', 'scan')
     } finally {
       setIsSubmitting(false)
+      isHandlingScanRef.current = false
     }
+  }
+
+  function showScanNotice(title: string, body: string, kind: ScanNotice['kind'], nextAction: ScanNotice['nextAction']) {
+    setScanNotice({ title, body, kind, nextAction })
+    setIsScannerOpen(true)
+  }
+
+  function nextScanAction(scanCount: number): ScanNotice['nextAction'] {
+    return scanCount >= masterCheckpoints.length ? 'close' : 'scan'
+  }
+
+  const checkpointExistsForRound = async (roundId: number, name: string) => {
+    const candidateKeys = ['clocking_round_id', 'round_id', 'clocking_rounds_id']
+
+    for (const key of candidateKeys) {
+      const { data, error } = await supabase
+        .from('clocking_checkpoints')
+        .select('id')
+        .eq(key, roundId)
+        .eq('name', name)
+        .limit(1)
+
+      if (!error && data && data.length > 0) return true
+      if (!error) return false
+    }
+
+    return false
   }
 
   const insertCheckpointWithFallback = async (roundId: number, name: string, time: string) => {
@@ -590,6 +673,33 @@ function MobileClockingRoundsContent() {
 
             <button onClick={closeScanner} style={{ width: '100%', height: '46px', borderRadius: '14px', border: 'none', backgroundColor: '#f1f5f9', color: '#1e3a8a', fontSize: '13px', fontWeight: '900', marginTop: '12px' }}>
               Close Scanner
+            </button>
+          </div>
+        </div>
+      )}
+
+      {scanNotice && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000000, backgroundColor: 'rgba(15, 23, 42, 0.56)', padding: '24px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '100%', maxWidth: '360px', backgroundColor: '#ffffff', borderRadius: '24px', padding: '24px', textAlign: 'center', boxShadow: '0 24px 50px rgba(15, 23, 42, 0.3)' }}>
+            <div style={{
+              width: '58px',
+              height: '58px',
+              borderRadius: '50%',
+              margin: '0 auto 14px auto',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ffffff',
+              fontSize: '28px',
+              fontWeight: '900',
+              backgroundColor: scanNotice.kind === 'success' ? '#10b981' : scanNotice.kind === 'warning' ? '#f59e0b' : '#ef4444'
+            }}>
+              {scanNotice.kind === 'success' ? '✓' : '!'}
+            </div>
+            <div style={{ color: '#0f172a', fontSize: '20px', fontWeight: '900', marginBottom: '8px' }}>{scanNotice.title}</div>
+            <div style={{ color: '#64748b', fontSize: '13px', fontWeight: '700', lineHeight: 1.5, marginBottom: '18px' }}>{scanNotice.body}</div>
+            <button onClick={handleScanNoticeOk} style={{ width: '100%', height: '48px', borderRadius: '15px', border: 'none', backgroundColor: '#1e3a8a', color: '#ffffff', fontSize: '14px', fontWeight: '900' }}>
+              OK
             </button>
           </div>
         </div>
