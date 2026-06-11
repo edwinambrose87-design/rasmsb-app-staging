@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useMemo } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
@@ -8,7 +8,13 @@ interface CheckpointLog {
   id: number
   name: string
   time: string
+  status: 'completed' | 'pending' | 'missed'
   imageUrl: string | null
+}
+
+interface MasterCheckpoint {
+  id: number
+  name: string
 }
 
 interface PatrolRoundRow {
@@ -29,36 +35,66 @@ interface PatrolRoundRow {
 function ClockingReportContent() {
   const searchParams = useSearchParams()
   const activeProjectSlug = searchParams.get('project')
+  const defaultRange = useMemo(() => getDefaultDateRange(), [])
 
-  const [startDate, setStartDate] = useState('2026-05-14')
-  const [endDate, setEndDate] = useState('2026-06-05')
+  const [startDate, setStartDate] = useState(defaultRange.startDate)
+  const [endDate, setEndDate] = useState(defaultRange.endDate)
   const [expandedCardIds, setExpandedCardIds] = useState<number[]>([])
   
   const [patrolRounds, setPatrolRounds] = useState<PatrolRoundRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabase = useMemo(
+    () => createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ),
+    []
   )
 
   useEffect(() => {
     // ✅ FIXES RACE CONDITIONS: Prevents slow database responses from overwriting faster dropdown selections
     let isCurrentRequestActive = true
+
+    async function fetchScansByRoundId(roundIds: number[]) {
+      const scansByRoundId = new Map<number, any[]>()
+      if (roundIds.length === 0) return scansByRoundId
+
+      const { data, error } = await supabase
+        .from('clocking_checkpoints')
+        .select('id, round_id, name, time, image_url')
+        .in('round_id', roundIds)
+        .order('id', { ascending: true })
+
+      if (error) throw error
+
+      ;(data || []).forEach((scan: any) => {
+        const roundScans = scansByRoundId.get(scan.round_id) || []
+        scansByRoundId.set(scan.round_id, [...roundScans, scan])
+      })
+
+      return scansByRoundId
+    }
     
     async function streamClockingLogs() {
-      if (!activeProjectSlug) return
+      if (!activeProjectSlug) {
+        setPatrolRounds([])
+        setIsLoading(false)
+        return
+      }
       
       setIsLoading(true)
       try {
         // 1. DYNAMIC REPOSITORY LOOKUP: Read the real total checkpoints assigned to this project
         const { data: masterCheckpoints, error: masterError } = await supabase
           .from('clocking_master_checkpoints')
-          .select('id')
+          .select('id, name')
           .eq('project_slug', activeProjectSlug)
+          .order('created_at', { ascending: true })
 
         if (masterError) throw masterError
-        const trueTotalPoints = masterCheckpoints ? masterCheckpoints.length : 0
+        const expectedCheckpoints = (masterCheckpoints || []) as MasterCheckpoint[]
+        const trueTotalPoints = expectedCheckpoints.length
 
         // 2. LIVE PATROL STREAM: Fetch rounds data and sub-join matching scan timestamps
         const { data: roundsData, error: roundsError } = await supabase
@@ -74,15 +110,12 @@ function ClockingReportContent() {
             total_points,
             missed_points,
             project_slug,
-            status,
-            clocking_checkpoints (
-              id,
-              name,
-              time,
-              image_url
-            )
+            status
           `)
           .eq('project_slug', activeProjectSlug)
+          .gte('date', startDate)
+          .lte('date', endDate)
+          .order('id', { ascending: false })
 
         if (roundsError) throw roundsError
 
@@ -90,18 +123,18 @@ function ClockingReportContent() {
         if (!isCurrentRequestActive) return
 
         if (roundsData) {
-          const filteredData = roundsData.filter((row: any) => {
-            const recordDate = new Date(row.date + 'T00:00:00')
-            const filterStart = new Date(startDate + 'T00:00:00')
-            const filterEnd = new Date(endDate + 'T00:00:00')
-            return recordDate >= filterStart && recordDate <= filterEnd
-          })
+          const roundIds = roundsData.map((row: any) => row.id)
+          const scansByRoundId = await fetchScansByRoundId(roundIds)
 
-          const mappedRounds: PatrolRoundRow[] = filteredData.map((row: any) => {
-            const scannedCheckpointsList = row.clocking_checkpoints || []
+          if (!isCurrentRequestActive) return
+
+          const roundsWithScanData = roundsData.filter((row: any) => (scansByRoundId.get(row.id) || []).length > 0)
+
+          const mappedRounds: PatrolRoundRow[] = roundsWithScanData.map((row: any) => {
+            const scannedCheckpointsList = scansByRoundId.get(row.id) || []
             const isInProgress = row.status === 'in_progress'
-
-            const completedPointsCount = scannedCheckpointsList.length
+            const cleanCheckpointLogs = buildCheckpointLogs(expectedCheckpoints, scannedCheckpointsList, isInProgress)
+            const completedPointsCount = cleanCheckpointLogs.filter(cp => cp.status === 'completed' && expectedCheckpoints.some(master => normalizeName(master.name) === normalizeName(cp.name))).length
             
             // Mask summary telemetry fields with conditional placeholders if the shift is active
             const finalEndTime = isInProgress ? '-- : --' : row.end_time
@@ -120,15 +153,12 @@ function ClockingReportContent() {
               missedPoints: finalMissedStats,
               project_slug: row.project_slug,
               status: row.status || 'completed',
-              checkpoints: scannedCheckpointsList.map((cp: any) => ({
-                id: cp.id,
-                name: cp.name || 'UNKNOWN STATION PIN',
-                time: cp.time || 'Pending Data...',
-                imageUrl: cp.image_url || null
-              }))
+              checkpoints: cleanCheckpointLogs
             }
           })
           setPatrolRounds(mappedRounds)
+        } else {
+          setPatrolRounds([])
         }
       } catch (err) {
         console.error('Failed to pull raw clocking ledger profiles:', err)
@@ -249,8 +279,9 @@ function ClockingReportContent() {
                         <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
                           <th style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', width: '5%' }}>#</th>
                           <th style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', width: '50%', textTransform: 'uppercase' as const }}>Clocking Point</th>
-                          <th style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', width: '30%', textTransform: 'uppercase' as const }}>Time</th>
-                          <th style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', width: '15%', textAlign: 'right', paddingRight: '20px', textTransform: 'uppercase' as const }}>Image</th>
+                          <th style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', width: '20%', textTransform: 'uppercase' as const }}>Time</th>
+                          <th style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', width: '15%', textTransform: 'uppercase' as const }}>Image</th>
+                          <th style={{ padding: '12px 10px', fontSize: '12px', color: '#64748b', width: '15%', textAlign: 'right', paddingRight: '20px', textTransform: 'uppercase' as const }}>Status</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -259,30 +290,35 @@ function ClockingReportContent() {
                             <tr key={cp.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '14px 10px', fontSize: '14px', color: '#64748b' }}>{idx + 1}</td>
                               <td style={{ padding: '14px 10px', fontSize: '14px', color: '#1e293b', fontWeight: '600' }}>{cp.name}</td>
-                              <td style={{ padding: '14px 10px', fontSize: '14px', color: '#334155' }}>{cp.time}</td>
-                              <td style={{ padding: '14px 10px', textAlign: 'right', paddingRight: '10px' }}>
-                                <button 
-                                  onClick={() => alert(cp.imageUrl ? `Opening Proof Photo Node: ${cp.imageUrl}` : `No file upload bound for ${cp.name}`)}
-                                  style={{ 
-                                    backgroundColor: cp.imageUrl ? '#e0f2fe' : '#f1f5f9', 
-                                    color: cp.imageUrl ? '#0369a1' : '#94a3b8', 
-                                    border: 'none', 
-                                    padding: '6px 20px', 
-                                    borderRadius: '6px', 
-                                    fontSize: '13px', 
-                                    fontWeight: '600', 
-                                    cursor: cp.imageUrl ? 'pointer' : 'not-allowed' 
+                              <td style={{ padding: '14px 10px', fontSize: '14px', color: cp.status === 'completed' ? '#334155' : cp.status === 'missed' ? '#ef4444' : '#64748b', fontWeight: cp.status === 'completed' ? 'normal' : '700' }}>{cp.time}</td>
+                              <td style={{ padding: '14px 10px' }}>
+                                <button
+                                  onClick={() => cp.imageUrl && window.open(cp.imageUrl, '_blank', 'noopener,noreferrer')}
+                                  style={{
+                                    backgroundColor: cp.imageUrl ? '#e0f2fe' : '#f1f5f9',
+                                    color: cp.imageUrl ? '#0369a1' : '#94a3b8',
+                                    border: 'none',
+                                    padding: '6px 14px',
+                                    borderRadius: '6px',
+                                    fontSize: '12px',
+                                    fontWeight: '700',
+                                    cursor: cp.imageUrl ? 'pointer' : 'not-allowed'
                                   }}
                                   disabled={!cp.imageUrl}
                                 >
                                   {cp.imageUrl ? 'View' : 'None'}
                                 </button>
                               </td>
+                              <td style={{ padding: '14px 10px', textAlign: 'right', paddingRight: '10px' }}>
+                                <span style={getCheckpointStatusStyle(cp.status)}>
+                                  {cp.status === 'completed' ? 'Completed' : cp.status === 'pending' ? 'Pending' : 'Missed'}
+                                </span>
+                              </td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={4} style={{ padding: '20px', textTransform: 'uppercase', textAlign: 'center', color: '#94a3b8', fontSize: '13px', fontWeight: 'bold', letterSpacing: '0.5px' }}>
+                            <td colSpan={5} style={{ padding: '20px', textTransform: 'uppercase', textAlign: 'center', color: '#94a3b8', fontSize: '13px', fontWeight: 'bold', letterSpacing: '0.5px' }}>
                               ⚠️ No physical checkpoints scanned on this round yet.
                             </td>
                           </tr>
@@ -302,6 +338,98 @@ function ClockingReportContent() {
       </div>
     </div>
   )
+}
+
+function getDefaultDateRange() {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(end.getDate() - 3)
+
+  return {
+    startDate: toInputDate(start),
+    endDate: toInputDate(end)
+  }
+}
+
+function toInputDate(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function normalizeName(name: string) {
+  return (name || '').trim().toUpperCase()
+}
+
+function buildCheckpointLogs(masterCheckpoints: MasterCheckpoint[], scannedCheckpoints: any[], isInProgress: boolean): CheckpointLog[] {
+  const uniqueScans = new Map<string, any>()
+
+  ;[...scannedCheckpoints]
+    .sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
+    .forEach(scan => {
+      const key = normalizeName(scan.name || '')
+      if (key && !uniqueScans.has(key)) {
+        uniqueScans.set(key, scan)
+      }
+    })
+
+  const expectedLogs = masterCheckpoints.map((checkpoint) => {
+    const scan = uniqueScans.get(normalizeName(checkpoint.name))
+    if (scan) {
+      return {
+        id: scan.id || checkpoint.id,
+        name: checkpoint.name,
+        time: scan.time || 'Time unavailable',
+        status: 'completed' as const,
+        imageUrl: scan.image_url || null
+      }
+    }
+
+    return {
+      id: checkpoint.id,
+      name: checkpoint.name,
+      time: isInProgress ? 'Awaiting scan' : 'Not scanned',
+      status: isInProgress ? 'pending' as const : 'missed' as const,
+      imageUrl: null
+    }
+  })
+
+  const masterNames = new Set(masterCheckpoints.map(checkpoint => normalizeName(checkpoint.name)))
+  const additionalScans = Array.from(uniqueScans.values())
+    .filter(scan => !masterNames.has(normalizeName(scan.name || '')))
+    .map(scan => ({
+      id: scan.id,
+      name: scan.name || 'UNKNOWN STATION PIN',
+      time: scan.time || 'Time unavailable',
+      status: 'completed' as const,
+      imageUrl: scan.image_url || null
+    }))
+
+  return [...expectedLogs, ...additionalScans]
+}
+
+function getCheckpointStatusStyle(status: CheckpointLog['status']) {
+  const baseStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '92px',
+    padding: '6px 10px',
+    borderRadius: '999px',
+    fontSize: '12px',
+    fontWeight: '800'
+  }
+
+  if (status === 'completed') {
+    return { ...baseStyle, backgroundColor: '#dcfce7', color: '#15803d' }
+  }
+
+  if (status === 'pending') {
+    return { ...baseStyle, backgroundColor: '#e0f2fe', color: '#0369a1' }
+  }
+
+  return { ...baseStyle, backgroundColor: '#fee2e2', color: '#b91c1c' }
 }
 
 export default function ClockingReportPage() {
