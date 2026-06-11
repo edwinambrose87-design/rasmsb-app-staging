@@ -69,6 +69,7 @@ function MobileClockingRoundsContent() {
   const scannedCheckpointsRef = useRef<ScannedCheckpoint[]>([])
   const scannedNameLocksRef = useRef<Set<string>>(new Set())
   const isHandlingScanRef = useRef(false)
+  const completionRedirectRef = useRef<number | null>(null)
 
   const [projectName, setProjectName] = useState('Clocking Round')
   const [projectSlug, setProjectSlug] = useState('')
@@ -85,6 +86,7 @@ function MobileClockingRoundsContent() {
   const [message, setMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [scanNotice, setScanNotice] = useState<ScanNotice | null>(null)
+  const [completionNotice, setCompletionNotice] = useState(false)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
   const stopCamera = useCallback(() => {
@@ -97,6 +99,13 @@ function MobileClockingRoundsContent() {
     streamRef.current = null
     setIsScanning(false)
   }, [])
+
+  const goBack = useCallback(() => {
+    const params = new URLSearchParams()
+    if (projectId) params.set('project_id', projectId)
+    if (guardId) params.set('guard_id', guardId)
+    router.push(`/mobile/personal_dashboard?${params.toString()}`)
+  }, [guardId, projectId, router])
 
   const fetchScannedCheckpoints = useCallback(async (roundId: number) => {
     const { data, error } = await supabase
@@ -200,7 +209,12 @@ function MobileClockingRoundsContent() {
 
   useEffect(() => {
     fetchClockingSetup()
-    return () => stopCamera()
+    return () => {
+      stopCamera()
+      if (completionRedirectRef.current) {
+        window.clearTimeout(completionRedirectRef.current)
+      }
+    }
   }, [fetchClockingSetup, stopCamera])
 
   useEffect(() => {
@@ -210,13 +224,6 @@ function MobileClockingRoundsContent() {
   useEffect(() => {
     scannedCheckpointsRef.current = scannedCheckpoints
   }, [scannedCheckpoints])
-
-  const goBack = () => {
-    const params = new URLSearchParams()
-    if (projectId) params.set('project_id', projectId)
-    if (guardId) params.set('guard_id', guardId)
-    router.push(`/mobile/personal_dashboard?${params.toString()}`)
-  }
 
   const handleSecureLogout = () => {
     stopCamera()
@@ -305,7 +312,15 @@ function MobileClockingRoundsContent() {
       activeRoundRef.current = null
       setIsRoundFinished(true)
       setScanNotice(null)
-      setMessage('Patrol round completed successfully.')
+      setCompletionNotice(true)
+      setMessage(null)
+      if (completionRedirectRef.current) {
+        window.clearTimeout(completionRedirectRef.current)
+      }
+      completionRedirectRef.current = window.setTimeout(() => {
+        setCompletionNotice(false)
+        goBack()
+      }, 6000)
     } catch (err: any) {
       setErrorMessage(err.message || 'Could not complete patrol round.')
     } finally {
@@ -327,7 +342,7 @@ function MobileClockingRoundsContent() {
     setIsScannerOpen(true)
 
     if (!('BarcodeDetector' in window)) {
-      setCameraError('QR scanner is not supported on this browser. Use the manual QR entry below.')
+      setCameraError('QR scanner is not supported on this browser.')
       return
     }
 
@@ -619,7 +634,7 @@ function MobileClockingRoundsContent() {
             </div>
           ) : activeRound ? (
             <button onClick={completeRound} disabled={isSubmitting} style={{ width: '100%', height: '54px', borderRadius: '16px', border: 'none', backgroundColor: '#10b981', color: '#ffffff', fontSize: '15px', fontWeight: '900', boxShadow: '0 10px 18px rgba(16, 185, 129, 0.22)', cursor: 'pointer', marginBottom: '18px' }}>
-              {isSubmitting ? 'Saving...' : 'Complete Scan'}
+              {isSubmitting ? 'Saving...' : 'Complete Clocking'}
             </button>
           ) : (
             <div style={{ ...messageStyle, color: '#047857', borderColor: '#a7f3d0', backgroundColor: '#ecfdf5' }}>Clocking round completed.</div>
@@ -671,7 +686,7 @@ function MobileClockingRoundsContent() {
               <canvas ref={canvasRef} style={{ display: 'none' }} />
               {!isScanning && (
                 <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: '#cbd5e1', fontSize: '13px', fontWeight: '800', padding: '24px', boxSizing: 'border-box' }}>
-                  Camera is not active. Tap OK or reopen scanner to continue.
+                  Opening camera...
                 </div>
               )}
               {isScanning && (
@@ -723,6 +738,18 @@ function MobileClockingRoundsContent() {
             <button onClick={handleScanNoticeOk} style={{ width: '100%', height: '48px', borderRadius: '15px', border: 'none', backgroundColor: '#1e3a8a', color: '#ffffff', fontSize: '14px', fontWeight: '900' }}>
               OK
             </button>
+          </div>
+        </div>
+      )}
+
+      {completionNotice && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000001, backgroundColor: 'rgba(15, 23, 42, 0.58)', padding: '24px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '100%', maxWidth: '360px', backgroundColor: '#ffffff', borderRadius: '24px', padding: '26px 24px', textAlign: 'center', boxShadow: '0 24px 50px rgba(15, 23, 42, 0.3)' }}>
+            <div style={{ width: '62px', height: '62px', borderRadius: '50%', margin: '0 auto 15px auto', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '30px', fontWeight: '900', backgroundColor: '#10b981' }}>
+              ✓
+            </div>
+            <div style={{ color: '#0f172a', fontSize: '20px', fontWeight: '900', marginBottom: '8px' }}>Patrolling Completed Successfully</div>
+            <div style={{ color: '#64748b', fontSize: '13px', fontWeight: '700', lineHeight: 1.5 }}>Returning to dashboard...</div>
           </div>
         </div>
       )}
