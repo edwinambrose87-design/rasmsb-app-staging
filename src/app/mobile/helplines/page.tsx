@@ -36,6 +36,7 @@ function MobileHelplinesContent() {
   const [contacts, setContacts] = useState<EmergencyContact[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
   const fetchContacts = useCallback(async () => {
     setIsLoading(true)
@@ -88,8 +89,32 @@ function MobileHelplinesContent() {
     router.push(`/mobile/personal_dashboard?${params.toString()}`)
   }
 
+  const handleSecureLogout = () => {
+    sessionStorage.clear()
+    localStorage.removeItem('active_guard_id')
+    localStorage.removeItem('ras_project_title')
+    router.replace('/mobile')
+  }
+
   return (
-    <div style={{ backgroundColor: '#f5f7fa', minHeight: '100vh', width: '100vw', padding: '20px', boxSizing: 'border-box', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b' }}>
+    <div style={{ backgroundColor: '#f5f7fa', minHeight: '100vh', width: '100vw', padding: '0 20px 30px 20px', boxSizing: 'border-box', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b', position: 'relative', overflowX: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 4px 15px 4px', width: '100%', boxSizing: 'border-box' }}>
+        <span style={{ fontSize: '22px', fontWeight: '900', color: '#1e3a8a', letterSpacing: '-0.5px' }}>RASMSB</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <button onClick={() => alert('No active corporate broadcast dispatches found.')} aria-label="Notifications" style={{ position: 'relative', cursor: 'pointer', border: 'none', background: 'transparent', padding: '2px', color: '#1e3a8a' }}>
+            <svg width="25" height="25" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M15 17H9m9-2V10a6 6 0 0 0-12 0v5l-2 2h16l-2-2Zm-4 4a2 2 0 0 1-4 0" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span style={{ position: 'absolute', top: '3px', right: '3px', width: '8px', height: '8px', backgroundColor: '#ef4444', borderRadius: '50%' }} />
+          </button>
+          <button onClick={() => setIsDrawerOpen(true)} aria-label="Open menu" style={{ display: 'flex', flexDirection: 'column', gap: '5px', cursor: 'pointer', padding: '4px', border: 'none', background: 'transparent' }}>
+            <span style={menuLineStyle} />
+            <span style={menuLineStyle} />
+            <span style={menuLineStyle} />
+          </button>
+        </div>
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '22px' }}>
         <button onClick={goBack} style={{ width: '42px', height: '42px', borderRadius: '12px', border: '1px solid #dbe3ef', backgroundColor: '#ffffff', color: '#1e3a8a', fontSize: '20px', fontWeight: '900' }}>
           &lt;
@@ -124,13 +149,64 @@ function MobileHelplinesContent() {
                         <path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.28-.28.68-.37 1.05-.25 1.15.38 2.39.58 3.65.58.58 0 1.04.46 1.04 1.04v3.49c0 .58-.46 1.04-1.04 1.04C10.64 21.08 2.92 13.36 2.92 3.89c0-.58.46-1.04 1.04-1.04h3.5c.58 0 1.04.46 1.04 1.04 0 1.26.2 2.5.58 3.65.11.37.03.77-.26 1.05l-2.2 2.2z" fill="currentColor" />
                       </svg>
                     </div>
-                  </a>
-                ))}
-              </div>
-            </section>
+          </a>
+        ))}
+      </div>
+    </section>
           ))}
         </div>
       )}
+
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        right: 0,
+        width: '100vw',
+        height: '100vh',
+        backgroundColor: 'rgba(15, 23, 42, 0.4)',
+        backdropFilter: 'blur(3px)',
+        zIndex: 999999,
+        transition: 'opacity 0.3s ease-in-out, visibility 0.3s',
+        opacity: isDrawerOpen ? 1 : 0,
+        visibility: isDrawerOpen ? 'visible' : 'hidden'
+      }} onClick={() => setIsDrawerOpen(false)}>
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          width: '80%',
+          maxWidth: '310px',
+          height: '100%',
+          backgroundColor: '#ffffff',
+          boxShadow: '-10px 0 25px -5px rgba(15, 23, 42, 0.15)',
+          padding: '30px 24px',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          transition: 'transform 0.3s ease-in-out',
+          transform: isDrawerOpen ? 'translateX(0)' : 'translateX(100%)'
+        }} onClick={(event) => event.stopPropagation()}>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '35px' }}>
+              <span style={{ fontSize: '16px', fontWeight: '800', color: '#1e3a8a', letterSpacing: '-0.3px' }}>Terminal Account</span>
+              <button onClick={() => setIsDrawerOpen(false)} style={{ background: 'none', border: 'none', fontSize: '20px', color: '#94a3b8', cursor: 'pointer', padding: '4px', fontWeight: 'bold' }}>X</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderBottom: '1px solid #f1f5f9', paddingBottom: '25px' }}>
+              <button onClick={goBack} style={drawerButtonStyle}>Back to Dashboard</button>
+              <div>
+                <label style={{ fontSize: '10px', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Operational Post</label>
+                <div style={{ fontSize: '13.5px', fontWeight: '700', color: '#475569', marginTop: '3px', lineHeight: '1.3' }}>{projectName}</div>
+              </div>
+            </div>
+          </div>
+
+          <button onClick={handleSecureLogout} style={{ width: '100%', height: '48px', backgroundColor: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '12px', color: '#ef4444', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
+            Sign Out Terminal
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -144,6 +220,27 @@ const messageStyle = {
   fontSize: '14px',
   fontWeight: '800',
   textAlign: 'center' as const
+}
+
+const menuLineStyle = {
+  width: '22px',
+  height: '3px',
+  backgroundColor: '#1e3a8a',
+  borderRadius: '2px'
+}
+
+const drawerButtonStyle = {
+  width: '100%',
+  height: '44px',
+  backgroundColor: '#eff6ff',
+  border: '1px solid #dbeafe',
+  borderRadius: '12px',
+  color: '#1e3a8a',
+  fontSize: '13px',
+  fontWeight: '800',
+  cursor: 'pointer',
+  textAlign: 'left' as const,
+  padding: '0 14px'
 }
 
 export default function MobileHelplinesPage() {
