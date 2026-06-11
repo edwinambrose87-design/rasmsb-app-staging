@@ -119,8 +119,10 @@ function MobileHelplinesContent() {
                       {contact.role && <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '700', marginTop: '4px' }}>{contact.role}</div>}
                       <div style={{ color: '#1e3a8a', fontSize: '13px', fontWeight: '800', marginTop: '6px' }}>{contact.phone}</div>
                     </div>
-                    <div style={{ minWidth: '44px', height: '44px', borderRadius: '14px', backgroundColor: '#dcfce7', color: '#15803d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: '900' }}>
-                      Call
+                    <div aria-label={`Call ${contact.name}`} style={{ minWidth: '48px', width: '48px', height: '48px', borderRadius: '50%', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 18px rgba(5, 150, 105, 0.25)', border: '3px solid #ecfdf5' }}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.28-.28.68-.37 1.05-.25 1.15.38 2.39.58 3.65.58.58 0 1.04.46 1.04 1.04v3.49c0 .58-.46 1.04-1.04 1.04C10.64 21.08 2.92 13.36 2.92 3.89c0-.58.46-1.04 1.04-1.04h3.5c.58 0 1.04.46 1.04 1.04 0 1.26.2 2.5.58 3.65.11.37.03.77-.26 1.05l-2.2 2.2z" fill="currentColor" />
+                      </svg>
                     </div>
                   </a>
                 ))}
