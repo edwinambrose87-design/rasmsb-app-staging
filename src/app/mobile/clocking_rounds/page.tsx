@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
@@ -58,6 +58,8 @@ function MobileClockingRoundsContent() {
   const streamRef = useRef<MediaStream | null>(null)
   const scanLoopRef = useRef<number | null>(null)
   const lastScanValueRef = useRef('')
+  const activeRoundRef = useRef<PatrolRound | null>(null)
+  const scannedCheckpointsRef = useRef<ScannedCheckpoint[]>([])
 
   const [projectName, setProjectName] = useState('Clocking Round')
   const [projectSlug, setProjectSlug] = useState('')
@@ -69,10 +71,52 @@ function MobileClockingRoundsContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
+  const [isScannerOpen, setIsScannerOpen] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+
+  const stopCamera = useCallback(() => {
+    if (scanLoopRef.current) {
+      window.cancelAnimationFrame(scanLoopRef.current)
+      scanLoopRef.current = null
+    }
+
+    streamRef.current?.getTracks().forEach(track => track.stop())
+    streamRef.current = null
+    setIsScanning(false)
+  }, [])
+
+  const fetchScannedCheckpoints = useCallback(async (roundId: number) => {
+    const { data, error } = await supabase
+      .from('clocking_checkpoints')
+      .select('id, name, time, image_url')
+      .eq('clocking_round_id', roundId)
+      .order('id', { ascending: true })
+
+    if (error) {
+      const fallback = await supabase
+        .from('clocking_checkpoints')
+        .select('id, name, time, image_url')
+        .eq('round_id', roundId)
+        .order('id', { ascending: true })
+
+      if (fallback.error) {
+        setScannedCheckpoints([])
+        scannedCheckpointsRef.current = []
+        return
+      }
+      const fallbackScans = (fallback.data || []) as ScannedCheckpoint[]
+      setScannedCheckpoints(fallbackScans)
+      scannedCheckpointsRef.current = fallbackScans
+      return
+    }
+
+    const scans = (data || []) as ScannedCheckpoint[]
+    setScannedCheckpoints(scans)
+    scannedCheckpointsRef.current = scans
+  }, [])
 
   const fetchClockingSetup = useCallback(async () => {
     setIsLoading(true)
@@ -136,37 +180,20 @@ function MobileClockingRoundsContent() {
     } finally {
       setIsLoading(false)
     }
-  }, [guardId, projectId])
-
-  async function fetchScannedCheckpoints(roundId: number) {
-    const { data, error } = await supabase
-      .from('clocking_checkpoints')
-      .select('id, name, time, image_url')
-      .eq('clocking_round_id', roundId)
-      .order('id', { ascending: true })
-
-    if (error) {
-      const fallback = await supabase
-        .from('clocking_checkpoints')
-        .select('id, name, time, image_url')
-        .eq('round_id', roundId)
-        .order('id', { ascending: true })
-
-      if (fallback.error) {
-        setScannedCheckpoints([])
-        return
-      }
-      setScannedCheckpoints((fallback.data || []) as ScannedCheckpoint[])
-      return
-    }
-
-    setScannedCheckpoints((data || []) as ScannedCheckpoint[])
-  }
+  }, [fetchScannedCheckpoints, guardId, projectId])
 
   useEffect(() => {
     fetchClockingSetup()
     return () => stopCamera()
-  }, [fetchClockingSetup])
+  }, [fetchClockingSetup, stopCamera])
+
+  useEffect(() => {
+    activeRoundRef.current = activeRound
+  }, [activeRound])
+
+  useEffect(() => {
+    scannedCheckpointsRef.current = scannedCheckpoints
+  }, [scannedCheckpoints])
 
   const goBack = () => {
     const params = new URLSearchParams()
@@ -214,9 +241,13 @@ function MobileClockingRoundsContent() {
         .single()
 
       if (error) throw error
-      setActiveRound(data as PatrolRound)
+      const startedRound = data as PatrolRound
+      activeRoundRef.current = startedRound
+      setActiveRound(startedRound)
       setScannedCheckpoints([])
+      scannedCheckpointsRef.current = []
       setMessage('Patrol round started. Scan the first checkpoint QR.')
+      await startCamera(startedRound)
     } catch (err: any) {
       setErrorMessage(err.message || 'Could not start patrol round.')
     } finally {
@@ -252,8 +283,11 @@ function MobileClockingRoundsContent() {
       if (error) throw error
 
       stopCamera()
+      setIsScannerOpen(false)
       setActiveRound(null)
+      activeRoundRef.current = null
       setScannedCheckpoints([])
+      scannedCheckpointsRef.current = []
       setMessage('Patrol round completed successfully.')
       await fetchClockingSetup()
     } catch (err: any) {
@@ -263,14 +297,18 @@ function MobileClockingRoundsContent() {
     }
   }
 
-  const startCamera = async () => {
+  const startCamera = async (roundOverride?: PatrolRound) => {
     setCameraError(null)
     setMessage(null)
 
-    if (!activeRound) {
+    const roundToScan = roundOverride || activeRoundRef.current
+
+    if (!roundToScan) {
       setErrorMessage('Start a patrol round before scanning QR codes.')
       return
     }
+
+    setIsScannerOpen(true)
 
     if (!('BarcodeDetector' in window)) {
       setCameraError('QR scanner is not supported on this browser. Use the manual QR entry below.')
@@ -283,10 +321,9 @@ function MobileClockingRoundsContent() {
         audio: false
       })
       streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-      }
+      const videoElement = await waitForVideoElement(videoRef)
+      videoElement.srcObject = stream
+      await videoElement.play()
       setIsScanning(true)
       runScanLoop()
     } catch (err: any) {
@@ -302,7 +339,7 @@ function MobileClockingRoundsContent() {
     const context = canvas.getContext('2d')
 
     const scan = async () => {
-      if (!videoRef.current || !context || !activeRound) return
+      if (!videoRef.current || !context || !activeRoundRef.current) return
 
       if (videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
         canvas.width = videoRef.current.videoWidth
@@ -330,15 +367,9 @@ function MobileClockingRoundsContent() {
     scanLoopRef.current = window.requestAnimationFrame(scan)
   }
 
-  function stopCamera() {
-    if (scanLoopRef.current) {
-      window.cancelAnimationFrame(scanLoopRef.current)
-      scanLoopRef.current = null
-    }
-
-    streamRef.current?.getTracks().forEach(track => track.stop())
-    streamRef.current = null
-    setIsScanning(false)
+  function closeScanner() {
+    stopCamera()
+    setIsScannerOpen(false)
   }
 
   const handleManualScan = async () => {
@@ -348,7 +379,8 @@ function MobileClockingRoundsContent() {
   }
 
   const handleQrPayload = async (rawValue: string) => {
-    if (!activeRound) return
+    const currentRound = activeRoundRef.current
+    if (!currentRound) return
     setErrorMessage(null)
     setMessage(null)
 
@@ -369,7 +401,8 @@ function MobileClockingRoundsContent() {
       return
     }
 
-    if (scannedCheckpoints.some(point => point.name === checkpoint.name)) {
+    const currentScans = scannedCheckpointsRef.current
+    if (currentScans.some(point => point.name === checkpoint.name)) {
       setMessage(`${checkpoint.name} is already scanned for this round.`)
       return
     }
@@ -377,11 +410,16 @@ function MobileClockingRoundsContent() {
     setIsSubmitting(true)
     try {
       const time = formatClockTime(new Date())
-      const insertedCheckpoint = await insertCheckpointWithFallback(activeRound.id, checkpoint.name, time)
-      const nextScans = [...scannedCheckpoints, insertedCheckpoint]
+      const insertedCheckpoint = await insertCheckpointWithFallback(currentRound.id, checkpoint.name, time)
+      const nextScans = [...scannedCheckpointsRef.current, insertedCheckpoint]
 
+      scannedCheckpointsRef.current = nextScans
       setScannedCheckpoints(nextScans)
-      setMessage(`${checkpoint.name} scanned successfully.`)
+      setMessage(
+        nextScans.length >= masterCheckpoints.length
+          ? `${checkpoint.name} scanned. All checkpoints completed.`
+          : `${checkpoint.name} scanned. Please scan checkpoint ${nextScans.length + 1} of ${masterCheckpoints.length}.`
+      )
 
       await supabase
         .from('clocking_rounds')
@@ -390,7 +428,7 @@ function MobileClockingRoundsContent() {
           total_points: masterCheckpoints.length,
           missed_points: Math.max(0, masterCheckpoints.length - nextScans.length)
         })
-        .eq('id', activeRound.id)
+        .eq('id', currentRound.id)
     } catch (err: any) {
       setErrorMessage(err.message || 'Could not save checkpoint scan.')
     } finally {
@@ -480,8 +518,8 @@ function MobileClockingRoundsContent() {
             </button>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '18px' }}>
-              <button onClick={isScanning ? stopCamera : startCamera} disabled={isSubmitting} style={{ height: '50px', borderRadius: '15px', border: 'none', backgroundColor: isScanning ? '#ef4444' : '#1e3a8a', color: '#ffffff', fontSize: '13px', fontWeight: '900', cursor: 'pointer' }}>
-                {isScanning ? 'Stop Scanner' : 'Scan QR'}
+              <button onClick={() => startCamera()} disabled={isSubmitting || scannedCheckpoints.length >= masterCheckpoints.length} style={{ height: '50px', borderRadius: '15px', border: 'none', backgroundColor: scannedCheckpoints.length >= masterCheckpoints.length ? '#94a3b8' : '#1e3a8a', color: '#ffffff', fontSize: '13px', fontWeight: '900', cursor: scannedCheckpoints.length >= masterCheckpoints.length ? 'not-allowed' : 'pointer' }}>
+                {scannedCheckpoints.length >= masterCheckpoints.length ? 'All Scanned' : 'Scan Next QR'}
               </button>
               <button onClick={completeRound} disabled={isSubmitting} style={{ height: '50px', borderRadius: '15px', border: 'none', backgroundColor: '#10b981', color: '#ffffff', fontSize: '13px', fontWeight: '900', cursor: 'pointer' }}>
                 {isSubmitting ? 'Saving...' : 'Complete Round'}
@@ -490,22 +528,6 @@ function MobileClockingRoundsContent() {
           )}
 
           {cameraError && <div style={{ ...messageStyle, color: '#92400e', borderColor: '#fde68a', backgroundColor: '#fffbeb' }}>{cameraError}</div>}
-
-          {activeRound && (
-            <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '18px', padding: '14px', marginBottom: '18px', boxShadow: '0 10px 18px rgba(15, 23, 42, 0.04)' }}>
-              <video ref={videoRef} playsInline muted style={{ display: isScanning ? 'block' : 'none', width: '100%', height: '260px', backgroundColor: '#0f172a', objectFit: 'cover', borderRadius: '14px' }} />
-              <canvas ref={canvasRef} style={{ display: 'none' }} />
-              {!isScanning && (
-                <div style={{ height: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: '#64748b', fontSize: '13px', fontWeight: '800' }}>
-                  Tap Scan QR to open the camera.
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                <input value={manualQr} onChange={(event) => setManualQr(event.target.value)} placeholder="Manual QR text if camera is unavailable" style={{ flex: 1, minWidth: 0, border: '1px solid #cbd5e1', borderRadius: '12px', padding: '11px', fontSize: '12px', color: '#1e293b' }} />
-                <button onClick={handleManualScan} disabled={!manualQr.trim() || isSubmitting} style={{ border: 'none', borderRadius: '12px', padding: '0 14px', backgroundColor: '#1e3a8a', color: '#ffffff', fontSize: '12px', fontWeight: '900' }}>Add</button>
-              </div>
-            </div>
-          )}
 
           <section style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '18px', overflow: 'hidden', boxShadow: '0 10px 18px rgba(15, 23, 42, 0.04)' }}>
             <div style={{ backgroundColor: '#eff6ff', color: '#1e3a8a', fontSize: '12px', fontWeight: '900', letterSpacing: '0.3px', padding: '13px 16px', borderBottom: '1px solid #dbeafe' }}>
@@ -531,6 +553,46 @@ function MobileClockingRoundsContent() {
             </div>
           </section>
         </>
+      )}
+
+      {activeRound && isScannerOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999998, backgroundColor: 'rgba(15, 23, 42, 0.72)', padding: '20px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '100%', maxWidth: '420px', backgroundColor: '#ffffff', borderRadius: '24px', padding: '18px', boxSizing: 'border-box', boxShadow: '0 24px 50px rgba(15, 23, 42, 0.28)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '14px', marginBottom: '14px' }}>
+              <div>
+                <div style={{ color: '#1e3a8a', fontSize: '11px', fontWeight: '900', letterSpacing: '1px' }}>SCAN CHECKPOINT</div>
+                <div style={{ color: '#0f172a', fontSize: '18px', fontWeight: '900', marginTop: '4px' }}>
+                  {scannedCheckpoints.length + 1 > masterCheckpoints.length ? 'All checkpoints scanned' : `${scannedCheckpoints.length + 1} of ${masterCheckpoints.length}`}
+                </div>
+              </div>
+              <button onClick={closeScanner} aria-label="Close scanner" style={{ width: '38px', height: '38px', borderRadius: '12px', border: '1px solid #e2e8f0', backgroundColor: '#ffffff', color: '#64748b', fontSize: '16px', fontWeight: '900' }}>X</button>
+            </div>
+
+            <div style={{ position: 'relative', overflow: 'hidden', borderRadius: '18px', backgroundColor: '#0f172a', minHeight: '280px', border: '1px solid #1e293b' }}>
+              <video ref={videoRef} playsInline muted style={{ display: isScanning ? 'block' : 'none', width: '100%', height: '320px', objectFit: 'cover' }} />
+              <canvas ref={canvasRef} style={{ display: 'none' }} />
+              {!isScanning && (
+                <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: '#cbd5e1', fontSize: '13px', fontWeight: '800', padding: '24px', boxSizing: 'border-box' }}>
+                  Camera is not active. Use manual QR entry below if your browser blocks camera scanning.
+                </div>
+              )}
+              <div style={{ position: 'absolute', inset: '58px 46px', border: '3px solid rgba(56, 189, 248, 0.9)', borderRadius: '18px', pointerEvents: 'none' }} />
+            </div>
+
+            <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '800', textAlign: 'center', margin: '12px 0 2px 0' }}>
+              Hold the QR code inside the blue frame.
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+              <input value={manualQr} onChange={(event) => setManualQr(event.target.value)} placeholder="Manual QR text" style={{ flex: 1, minWidth: 0, border: '1px solid #cbd5e1', borderRadius: '12px', padding: '11px', fontSize: '12px', color: '#1e293b' }} />
+              <button onClick={handleManualScan} disabled={!manualQr.trim() || isSubmitting} style={{ border: 'none', borderRadius: '12px', padding: '0 14px', backgroundColor: '#1e3a8a', color: '#ffffff', fontSize: '12px', fontWeight: '900' }}>Add</button>
+            </div>
+
+            <button onClick={closeScanner} style={{ width: '100%', height: '46px', borderRadius: '14px', border: 'none', backgroundColor: '#f1f5f9', color: '#1e3a8a', fontSize: '13px', fontWeight: '900', marginTop: '12px' }}>
+              Close Scanner
+            </button>
+          </div>
+        </div>
       )}
 
       <div style={{
@@ -631,6 +693,29 @@ function formatDuration(start: Date, end: Date) {
   const hours = Math.floor(totalMinutes / 60)
   const minutes = totalMinutes % 60
   return `${hours}h ${minutes.toString().padStart(2, '0')}m`
+}
+
+function waitForVideoElement(ref: RefObject<HTMLVideoElement | null>) {
+  return new Promise<HTMLVideoElement>((resolve, reject) => {
+    let attempts = 0
+
+    const check = () => {
+      if (ref.current) {
+        resolve(ref.current)
+        return
+      }
+
+      attempts += 1
+      if (attempts > 30) {
+        reject(new Error('Scanner view is not ready yet. Please try again.'))
+        return
+      }
+
+      window.requestAnimationFrame(check)
+    }
+
+    check()
+  })
 }
 
 const messageStyle = {
