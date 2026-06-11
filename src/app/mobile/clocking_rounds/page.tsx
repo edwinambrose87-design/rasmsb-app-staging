@@ -199,14 +199,14 @@ function MobileClockingRoundsContent() {
       const { data, error } = await supabase
         .from('clocking_rounds')
         .insert({
-          guard: guardName,
-          date: toInputDate(now),
-          start_time: formatClockTime(now),
-          end_time: null,
-          duration: null,
-          completed_points: 0,
-          total_points: masterCheckpoints.length,
-          missed_points: masterCheckpoints.length,
+        guard: guardName,
+        date: toInputDate(now),
+        start_time: formatClockTime(now),
+        end_time: '-- : --',
+        duration: 'In Progress...',
+        completed_points: 0,
+        total_points: masterCheckpoints.length,
+        missed_points: masterCheckpoints.length,
           project_slug: projectSlug,
           status: 'in_progress'
         })
