@@ -320,7 +320,7 @@ function MobileClockingRoundsContent() {
       completionRedirectRef.current = window.setTimeout(() => {
         setCompletionNotice(false)
         goBack()
-      }, 6000)
+      }, 3000)
     } catch (err: any) {
       setErrorMessage(err.message || 'Could not complete patrol round.')
     } finally {
@@ -624,17 +624,17 @@ function MobileClockingRoundsContent() {
 
           {!activeRound && !isRoundFinished ? (
             <button onClick={startRound} disabled={isSubmitting || masterCheckpoints.length === 0} style={{ width: '100%', height: '54px', borderRadius: '16px', border: 'none', backgroundColor: masterCheckpoints.length === 0 ? '#94a3b8' : '#10b981', color: '#ffffff', fontSize: '15px', fontWeight: '900', boxShadow: '0 10px 18px rgba(16, 185, 129, 0.22)', cursor: masterCheckpoints.length === 0 ? 'not-allowed' : 'pointer', marginBottom: '18px' }}>
-              {isSubmitting ? 'Starting Round...' : 'Clocking Rounds'}
+              {isSubmitting ? 'Starting Clocking...' : 'Start Clocking'}
             </button>
           ) : activeRound && scannedCheckpoints.length < masterCheckpoints.length ? (
             <div style={{ marginBottom: '18px' }}>
-              <button onClick={() => startCamera()} disabled={isSubmitting} style={{ width: '100%', height: '50px', borderRadius: '15px', border: 'none', backgroundColor: '#1e3a8a', color: '#ffffff', fontSize: '13px', fontWeight: '900', cursor: 'pointer' }}>
-                Scan Next QR
+              <button onClick={() => startCamera()} disabled={isSubmitting} style={{ width: '100%', height: '50px', borderRadius: '15px', border: 'none', backgroundColor: '#10b981', color: '#ffffff', fontSize: '13px', fontWeight: '900', cursor: 'pointer', boxShadow: '0 10px 18px rgba(16, 185, 129, 0.22)' }}>
+                Continue Clocking
               </button>
             </div>
           ) : activeRound ? (
             <button onClick={completeRound} disabled={isSubmitting} style={{ width: '100%', height: '54px', borderRadius: '16px', border: 'none', backgroundColor: '#10b981', color: '#ffffff', fontSize: '15px', fontWeight: '900', boxShadow: '0 10px 18px rgba(16, 185, 129, 0.22)', cursor: 'pointer', marginBottom: '18px' }}>
-              {isSubmitting ? 'Saving...' : 'Complete Clocking'}
+              {isSubmitting ? 'Saving...' : 'End Clocking'}
             </button>
           ) : (
             <div style={{ ...messageStyle, color: '#047857', borderColor: '#a7f3d0', backgroundColor: '#ecfdf5' }}>Clocking round completed.</div>
