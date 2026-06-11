@@ -76,11 +76,11 @@ function MobileClockingRoundsContent() {
   const [masterCheckpoints, setMasterCheckpoints] = useState<MasterCheckpoint[]>([])
   const [activeRound, setActiveRound] = useState<PatrolRound | null>(null)
   const [scannedCheckpoints, setScannedCheckpoints] = useState<ScannedCheckpoint[]>([])
-  const [manualQr, setManualQr] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
   const [isScannerOpen, setIsScannerOpen] = useState(false)
+  const [isRoundFinished, setIsRoundFinished] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -134,6 +134,7 @@ function MobileClockingRoundsContent() {
   const fetchClockingSetup = useCallback(async () => {
     setIsLoading(true)
     setErrorMessage(null)
+    setIsRoundFinished(false)
 
     try {
       if (!projectId || !guardId) {
@@ -302,12 +303,9 @@ function MobileClockingRoundsContent() {
       setIsScannerOpen(false)
       setActiveRound(null)
       activeRoundRef.current = null
-      setScannedCheckpoints([])
-      scannedCheckpointsRef.current = []
-      scannedNameLocksRef.current = new Set()
+      setIsRoundFinished(true)
       setScanNotice(null)
       setMessage('Patrol round completed successfully.')
-      await fetchClockingSetup()
     } catch (err: any) {
       setErrorMessage(err.message || 'Could not complete patrol round.')
     } finally {
@@ -402,12 +400,6 @@ function MobileClockingRoundsContent() {
     }
   }
 
-  const handleManualScan = async () => {
-    if (!manualQr.trim()) return
-    await handleQrPayload(manualQr.trim())
-    setManualQr('')
-  }
-
   const handleQrPayload = async (rawValue: string) => {
     if (isHandlingScanRef.current) return
     isHandlingScanRef.current = true
@@ -442,6 +434,19 @@ function MobileClockingRoundsContent() {
     }
 
     const currentScans = scannedCheckpointsRef.current
+    const expectedCheckpoint = masterCheckpoints[currentScans.length]
+
+    if (expectedCheckpoint && checkpoint.id !== expectedCheckpoint.id) {
+      showScanNotice(
+        'QR Point Mistake',
+        `Please scan point ${currentScans.length + 1}: ${expectedCheckpoint.name}.`,
+        'warning',
+        'scan'
+      )
+      isHandlingScanRef.current = false
+      return
+    }
+
     if (currentScans.some(point => point.name === checkpoint.name) || scannedNameLocksRef.current.has(checkpoint.name)) {
       showScanNotice('Already Scanned', `${checkpoint.name} has already been scanned for this round.`, 'warning', 'scan')
       isHandlingScanRef.current = false
@@ -548,6 +553,13 @@ function MobileClockingRoundsContent() {
 
   return (
     <div style={{ backgroundColor: '#f5f7fa', minHeight: '100vh', width: '100vw', padding: '0 20px 30px 20px', boxSizing: 'border-box', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b', position: 'relative', overflowX: 'hidden' }}>
+      <style>{`
+        @keyframes rasScannerLine {
+          0% { top: 18%; opacity: 0.45; }
+          50% { top: 78%; opacity: 1; }
+          100% { top: 18%; opacity: 0.45; }
+        }
+      `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 4px 15px 4px', width: '100%', boxSizing: 'border-box' }}>
         <span style={{ fontSize: '22px', fontWeight: '900', color: '#1e3a8a', letterSpacing: '-0.5px' }}>RASMSB</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -584,10 +596,10 @@ function MobileClockingRoundsContent() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '14px', marginTop: '8px' }}>
               <div>
                 <div style={{ fontSize: '25px', fontWeight: '900' }}>{scannedCheckpoints.length}/{masterCheckpoints.length}</div>
-                <div style={{ fontSize: '12px', color: '#dbeafe', fontWeight: '700' }}>{activeRound ? `Started ${activeRound.start_time}` : 'No round started'}</div>
+                <div style={{ fontSize: '12px', color: '#dbeafe', fontWeight: '700' }}>{activeRound ? `Started ${activeRound.start_time}` : isRoundFinished ? 'Round completed' : 'No round started'}</div>
               </div>
-              <div style={{ fontSize: '12px', fontWeight: '900', backgroundColor: activeRound ? '#10b981' : '#64748b', padding: '7px 10px', borderRadius: '999px' }}>
-                {activeRound ? 'IN PROGRESS' : 'READY'}
+              <div style={{ fontSize: '12px', fontWeight: '900', backgroundColor: activeRound || isRoundFinished ? '#10b981' : '#64748b', padding: '7px 10px', borderRadius: '999px' }}>
+                {activeRound ? 'IN PROGRESS' : isRoundFinished ? 'COMPLETED' : 'READY'}
               </div>
             </div>
             <div style={{ height: '9px', backgroundColor: 'rgba(255,255,255,0.22)', borderRadius: '999px', overflow: 'hidden', marginTop: '16px' }}>
@@ -595,19 +607,22 @@ function MobileClockingRoundsContent() {
             </div>
           </section>
 
-          {!activeRound ? (
+          {!activeRound && !isRoundFinished ? (
             <button onClick={startRound} disabled={isSubmitting || masterCheckpoints.length === 0} style={{ width: '100%', height: '54px', borderRadius: '16px', border: 'none', backgroundColor: masterCheckpoints.length === 0 ? '#94a3b8' : '#10b981', color: '#ffffff', fontSize: '15px', fontWeight: '900', boxShadow: '0 10px 18px rgba(16, 185, 129, 0.22)', cursor: masterCheckpoints.length === 0 ? 'not-allowed' : 'pointer', marginBottom: '18px' }}>
-              {isSubmitting ? 'Starting Round...' : 'Start Patrol Round'}
+              {isSubmitting ? 'Starting Round...' : 'Clocking Rounds'}
             </button>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '18px' }}>
-              <button onClick={() => startCamera()} disabled={isSubmitting || scannedCheckpoints.length >= masterCheckpoints.length} style={{ height: '50px', borderRadius: '15px', border: 'none', backgroundColor: scannedCheckpoints.length >= masterCheckpoints.length ? '#94a3b8' : '#1e3a8a', color: '#ffffff', fontSize: '13px', fontWeight: '900', cursor: scannedCheckpoints.length >= masterCheckpoints.length ? 'not-allowed' : 'pointer' }}>
-                {scannedCheckpoints.length >= masterCheckpoints.length ? 'All Scanned' : 'Scan Next QR'}
-              </button>
-              <button onClick={completeRound} disabled={isSubmitting} style={{ height: '50px', borderRadius: '15px', border: 'none', backgroundColor: '#10b981', color: '#ffffff', fontSize: '13px', fontWeight: '900', cursor: 'pointer' }}>
-                {isSubmitting ? 'Saving...' : 'Complete Round'}
+          ) : activeRound && scannedCheckpoints.length < masterCheckpoints.length ? (
+            <div style={{ marginBottom: '18px' }}>
+              <button onClick={() => startCamera()} disabled={isSubmitting} style={{ width: '100%', height: '50px', borderRadius: '15px', border: 'none', backgroundColor: '#1e3a8a', color: '#ffffff', fontSize: '13px', fontWeight: '900', cursor: 'pointer' }}>
+                Scan Next QR
               </button>
             </div>
+          ) : activeRound ? (
+            <button onClick={completeRound} disabled={isSubmitting} style={{ width: '100%', height: '54px', borderRadius: '16px', border: 'none', backgroundColor: '#10b981', color: '#ffffff', fontSize: '15px', fontWeight: '900', boxShadow: '0 10px 18px rgba(16, 185, 129, 0.22)', cursor: 'pointer', marginBottom: '18px' }}>
+              {isSubmitting ? 'Saving...' : 'Complete Scan'}
+            </button>
+          ) : (
+            <div style={{ ...messageStyle, color: '#047857', borderColor: '#a7f3d0', backgroundColor: '#ecfdf5' }}>Clocking round completed.</div>
           )}
 
           {cameraError && <div style={{ ...messageStyle, color: '#92400e', borderColor: '#fde68a', backgroundColor: '#fffbeb' }}>{cameraError}</div>}
@@ -656,19 +671,26 @@ function MobileClockingRoundsContent() {
               <canvas ref={canvasRef} style={{ display: 'none' }} />
               {!isScanning && (
                 <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: '#cbd5e1', fontSize: '13px', fontWeight: '800', padding: '24px', boxSizing: 'border-box' }}>
-                  Camera is not active. Use manual QR entry below if your browser blocks camera scanning.
+                  Camera is not active. Tap OK or reopen scanner to continue.
                 </div>
               )}
-              <div style={{ position: 'absolute', inset: '58px 46px', border: '3px solid rgba(56, 189, 248, 0.9)', borderRadius: '18px', pointerEvents: 'none' }} />
+              {isScanning && (
+                <div style={{
+                  position: 'absolute',
+                  left: '10%',
+                  right: '10%',
+                  height: '3px',
+                  borderRadius: '999px',
+                  backgroundColor: '#38bdf8',
+                  boxShadow: '0 0 18px rgba(56, 189, 248, 0.95)',
+                  animation: 'rasScannerLine 1.45s ease-in-out infinite',
+                  pointerEvents: 'none'
+                }} />
+              )}
             </div>
 
             <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '800', textAlign: 'center', margin: '12px 0 2px 0' }}>
-              Hold the QR code inside the blue frame.
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-              <input value={manualQr} onChange={(event) => setManualQr(event.target.value)} placeholder="Manual QR text" style={{ flex: 1, minWidth: 0, border: '1px solid #cbd5e1', borderRadius: '12px', padding: '11px', fontSize: '12px', color: '#1e293b' }} />
-              <button onClick={handleManualScan} disabled={!manualQr.trim() || isSubmitting} style={{ border: 'none', borderRadius: '12px', padding: '0 14px', backgroundColor: '#1e3a8a', color: '#ffffff', fontSize: '12px', fontWeight: '900' }}>Add</button>
+              Hold the QR code in front of the camera.
             </div>
 
             <button onClick={closeScanner} style={{ width: '100%', height: '46px', borderRadius: '14px', border: 'none', backgroundColor: '#f1f5f9', color: '#1e3a8a', fontSize: '13px', fontWeight: '900', marginTop: '12px' }}>
