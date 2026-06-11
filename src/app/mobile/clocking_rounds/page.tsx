@@ -63,6 +63,9 @@ function MobileClockingRoundsContent() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const proofVideoRef = useRef<HTMLVideoElement | null>(null)
+  const proofCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const proofStreamRef = useRef<MediaStream | null>(null)
   const scanLoopRef = useRef<number | null>(null)
   const lastScanValueRef = useRef('')
   const activeRoundRef = useRef<PatrolRound | null>(null)
@@ -81,8 +84,10 @@ function MobileClockingRoundsContent() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
   const [isScannerOpen, setIsScannerOpen] = useState(false)
+  const [isVerificationOpen, setIsVerificationOpen] = useState(false)
   const [isRoundFinished, setIsRoundFinished] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [verificationError, setVerificationError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [scanNotice, setScanNotice] = useState<ScanNotice | null>(null)
@@ -98,6 +103,11 @@ function MobileClockingRoundsContent() {
     streamRef.current?.getTracks().forEach(track => track.stop())
     streamRef.current = null
     setIsScanning(false)
+  }, [])
+
+  const stopProofCamera = useCallback(() => {
+    proofStreamRef.current?.getTracks().forEach(track => track.stop())
+    proofStreamRef.current = null
   }, [])
 
   const goBack = useCallback(() => {
@@ -211,11 +221,12 @@ function MobileClockingRoundsContent() {
     fetchClockingSetup()
     return () => {
       stopCamera()
+      stopProofCamera()
       if (completionRedirectRef.current) {
         window.clearTimeout(completionRedirectRef.current)
       }
     }
-  }, [fetchClockingSetup, stopCamera])
+  }, [fetchClockingSetup, stopCamera, stopProofCamera])
 
   useEffect(() => {
     activeRoundRef.current = activeRound
@@ -227,6 +238,7 @@ function MobileClockingRoundsContent() {
 
   const handleSecureLogout = () => {
     stopCamera()
+    stopProofCamera()
     sessionStorage.clear()
     localStorage.removeItem('active_guard_id')
     localStorage.removeItem('ras_project_title')
@@ -403,6 +415,47 @@ function MobileClockingRoundsContent() {
     setIsScannerOpen(false)
   }
 
+  const captureVerificationPhoto = async () => {
+    setVerificationError(null)
+    setIsVerificationOpen(true)
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'user' } },
+        audio: false
+      })
+      proofStreamRef.current = stream
+
+      const videoElement = await waitForVideoElement(proofVideoRef)
+      videoElement.srcObject = stream
+      await videoElement.play()
+      await waitForVideoFrame(videoElement)
+
+      const canvas = proofCanvasRef.current
+      const context = canvas?.getContext('2d')
+      if (!canvas || !context) {
+        throw new Error('Verification camera is not ready.')
+      }
+
+      const sourceWidth = videoElement.videoWidth || 640
+      const sourceHeight = videoElement.videoHeight || 480
+      const targetWidth = 420
+      const targetHeight = Math.round((sourceHeight / sourceWidth) * targetWidth)
+      canvas.width = targetWidth
+      canvas.height = targetHeight
+      context.drawImage(videoElement, 0, 0, targetWidth, targetHeight)
+
+      return canvas.toDataURL('image/jpeg', 0.72)
+    } catch (err: any) {
+      const message = err.message || 'Verification photo could not be captured.'
+      setVerificationError(message)
+      throw new Error(message)
+    } finally {
+      stopProofCamera()
+      setIsVerificationOpen(false)
+    }
+  }
+
   async function handleScanNoticeOk() {
     const notice = scanNotice
     setScanNotice(null)
@@ -474,14 +527,15 @@ function MobileClockingRoundsContent() {
       const time = formatClockTime(new Date())
       const alreadySaved = await checkpointExistsForRound(currentRound.id, checkpoint.name)
       if (alreadySaved) {
-        const syncedScans = [...scannedCheckpointsRef.current, { id: checkpoint.id, name: checkpoint.name, time }]
+        const syncedScans = [...scannedCheckpointsRef.current, { id: checkpoint.id, name: checkpoint.name, time, image_url: null }]
         scannedCheckpointsRef.current = syncedScans
         setScannedCheckpoints(syncedScans)
         showScanNotice('Already Scanned', `${checkpoint.name} was already saved for this round.`, 'warning', nextScanAction(syncedScans.length))
         return
       }
 
-      const insertedCheckpoint = await insertCheckpointWithFallback(currentRound.id, checkpoint.name, time)
+      const verificationImageUrl = await captureVerificationPhoto()
+      const insertedCheckpoint = await insertCheckpointWithFallback(currentRound.id, checkpoint.name, time, verificationImageUrl)
       const nextScans = [...scannedCheckpointsRef.current, insertedCheckpoint]
 
       scannedCheckpointsRef.current = nextScans
@@ -539,11 +593,11 @@ function MobileClockingRoundsContent() {
     return false
   }
 
-  const insertCheckpointWithFallback = async (roundId: number, name: string, time: string) => {
+  const insertCheckpointWithFallback = async (roundId: number, name: string, time: string, imageUrl: string) => {
     const basePayload = {
       name,
       time,
-      image_url: null
+      image_url: imageUrl
     }
 
     const candidateKeys = ['clocking_round_id', 'round_id', 'clocking_rounds_id']
@@ -742,6 +796,22 @@ function MobileClockingRoundsContent() {
         </div>
       )}
 
+      {isVerificationOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000002, backgroundColor: 'rgba(15, 23, 42, 0.68)', padding: '24px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '100%', maxWidth: '390px', backgroundColor: '#ffffff', borderRadius: '24px', padding: '20px', textAlign: 'center', boxShadow: '0 24px 50px rgba(15, 23, 42, 0.32)' }}>
+            <div style={{ color: '#1e3a8a', fontSize: '12px', fontWeight: '900', letterSpacing: '1px', marginBottom: '6px' }}>VERIFICATION PHOTO REQUIRED</div>
+            <div style={{ color: '#0f172a', fontSize: '18px', fontWeight: '900', marginBottom: '14px' }}>Capturing proof photo...</div>
+            <div style={{ borderRadius: '18px', overflow: 'hidden', backgroundColor: '#0f172a', border: '1px solid #e2e8f0' }}>
+              <video ref={proofVideoRef} playsInline muted style={{ width: '100%', height: '280px', objectFit: 'cover', transform: 'scaleX(-1)', display: 'block' }} />
+              <canvas ref={proofCanvasRef} style={{ display: 'none' }} />
+            </div>
+            <div style={{ color: verificationError ? '#b91c1c' : '#64748b', fontSize: '12px', fontWeight: '800', lineHeight: 1.5, marginTop: '12px' }}>
+              {verificationError || 'Please face the front camera. The photo will be saved with this checkpoint.'}
+            </div>
+          </div>
+        </div>
+      )}
+
       {completionNotice && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000001, backgroundColor: 'rgba(15, 23, 42, 0.58)', padding: '24px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ width: '100%', maxWidth: '360px', backgroundColor: '#ffffff', borderRadius: '24px', padding: '26px 24px', textAlign: 'center', boxShadow: '0 24px 50px rgba(15, 23, 42, 0.3)' }}>
@@ -874,6 +944,19 @@ function waitForVideoElement(ref: RefObject<HTMLVideoElement | null>) {
     }
 
     check()
+  })
+}
+
+function waitForVideoFrame(video: HTMLVideoElement) {
+  return new Promise<void>((resolve) => {
+    const finish = () => resolve()
+
+    if ('requestVideoFrameCallback' in video) {
+      ;(video as any).requestVideoFrameCallback(() => finish())
+      return
+    }
+
+    window.setTimeout(finish, 250)
   })
 }
 
