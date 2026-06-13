@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
@@ -19,18 +19,33 @@ export default function QRManagementPage() {
   const [newPointName, setNewPointName] = useState('')
   const [checkpoints, setCheckpoints] = useState<MasterCheckpointRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const checkpointCacheRef = useRef<Record<string, MasterCheckpointRow[]>>({})
   
   const [customLogoUrl, setCustomLogoUrl] = useState<string | null>(null)
   const [fileNameLabel, setFileNameLabel] = useState('No file chosen')
+  const [brandingRecordId, setBrandingRecordId] = useState<string | null>(null)
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabase = useMemo(
+    () => createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ),
+    []
   )
 
   useEffect(() => {
+    let isCurrentRequestActive = true
+
     async function streamMasterCheckpoints() {
-      setIsLoading(true)
+      const cachedCheckpoints = checkpointCacheRef.current[activeProjectSlug]
+      if (cachedCheckpoints) {
+        setCheckpoints(cachedCheckpoints)
+        setIsLoading(false)
+      } else {
+        setCheckpoints([])
+        setIsLoading(true)
+      }
+
       try {
         const { data, error } = await supabase
           .from('clocking_master_checkpoints')
@@ -39,16 +54,49 @@ export default function QRManagementPage() {
           .order('created_at', { ascending: false })
 
         if (error) throw error
-        setCheckpoints(data || [])
+        if (!isCurrentRequestActive) return
+
+        const nextCheckpoints = data || []
+        setCheckpoints(nextCheckpoints)
+        checkpointCacheRef.current[activeProjectSlug] = nextCheckpoints
       } catch (err) {
         console.error('Failed fetching master station links:', err)
       } finally {
-        setIsLoading(false)
+        if (isCurrentRequestActive) setIsLoading(false)
       }
     }
 
     streamMasterCheckpoints()
+
+    return () => {
+      isCurrentRequestActive = false
+    }
   }, [activeProjectSlug, supabase])
+
+  useEffect(() => {
+    async function loadGlobalQrLogo() {
+      try {
+        const { data, error } = await supabase
+          .from('global_branding')
+          .select('id, logo_url')
+          .limit(1)
+
+        if (error) throw error
+
+        if (data && data.length > 0) {
+          setBrandingRecordId(data[0].id)
+          if (data[0].logo_url) {
+            setCustomLogoUrl(data[0].logo_url)
+            setFileNameLabel('Using global branding logo')
+          }
+        }
+      } catch (err) {
+        console.error('Failed loading global QR logo:', err)
+      }
+    }
+
+    loadGlobalQrLogo()
+  }, [supabase])
 
   const handleCreateCheckpt = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -70,7 +118,9 @@ export default function QRManagementPage() {
       if (error) throw error
 
       if (data) {
-        setCheckpoints([data[0], ...checkpoints])
+        const nextCheckpoints = [data[0], ...checkpoints]
+        setCheckpoints(nextCheckpoints)
+        checkpointCacheRef.current[activeProjectSlug] = nextCheckpoints
         setNewPointName('')
       }
     } catch (err) {
@@ -89,7 +139,9 @@ export default function QRManagementPage() {
         .eq('id', id)
 
       if (error) throw error
-      setCheckpoints(checkpoints.filter(cp => cp.id !== id))
+      const nextCheckpoints = checkpoints.filter(cp => cp.id !== id)
+      setCheckpoints(nextCheckpoints)
+      checkpointCacheRef.current[activeProjectSlug] = nextCheckpoints
     } catch (err) {
       console.error('Failed to clear master checkpoint row:', err)
     }
@@ -107,10 +159,43 @@ export default function QRManagementPage() {
     setFileNameLabel(file.name)
 
     const reader = new FileReader()
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       if (event.target?.result) {
-        setCustomLogoUrl(event.target.result as string)
-        alert(`Success!\n"${file.name}" has been loaded as your active central QR stamp.`)
+        const logoDataUrl = event.target.result as string
+        setCustomLogoUrl(logoDataUrl)
+
+        try {
+          if (brandingRecordId) {
+            const { error } = await supabase
+              .from('global_branding')
+              .update({
+                logo_url: logoDataUrl,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', brandingRecordId)
+
+            if (error) throw error
+          } else {
+            const { data, error } = await supabase
+              .from('global_branding')
+              .insert([{
+                organization_name: 'RASMSB',
+                theme_color: '#1E3A8A',
+                logo_url: logoDataUrl,
+                brightness_adjustment: 0
+              }])
+              .select('id')
+
+            if (error) throw error
+            if (data && data.length > 0) setBrandingRecordId(data[0].id)
+          }
+
+          localStorage.setItem('global_logo_url', logoDataUrl)
+          alert(`Success!\n"${file.name}" has been saved as the global QR center logo.`)
+        } catch (err: any) {
+          console.error('Failed saving global QR logo:', err)
+          alert(`Save failed: ${err.message}`)
+        }
       }
     }
     reader.readAsDataURL(file)
@@ -277,13 +362,16 @@ export default function QRManagementPage() {
 
         {/* LEDGER DISPLAY GRID */}
         <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
-          <div style={{ padding: '18px 25px', backgroundColor: '#f1f5f9', borderBottom: '2px solid #e2e8f0', fontWeight: 'bold', color: '#1e3a8a', fontSize: '14px' }}>
-            ACTIVE PHYSICAL LOCATION TAGS DIRECTORY ({checkpoints.length}) — SITE KEY: <span style={{color: '#10b981'}}>{activeProjectSlug.toUpperCase()}</span>
+          <div style={{ padding: '18px 25px', backgroundColor: '#f1f5f9', borderBottom: '2px solid #e2e8f0', fontWeight: 'bold', color: '#1e3a8a', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+            <span>ACTIVE PHYSICAL LOCATION TAGS DIRECTORY ({checkpoints.length}) - SITE KEY: <span style={{color: '#10b981'}}>{activeProjectSlug.toUpperCase()}</span></span>
+            {isLoading && checkpoints.length > 0 && (
+              <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '800' }}>SYNCING...</span>
+            )}
           </div>
 
           <div style={{ padding: '15px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              {isLoading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', minHeight: '120px', transition: 'opacity 0.2s ease', opacity: isLoading && checkpoints.length > 0 ? 0.72 : 1 }}>
+              {isLoading && checkpoints.length === 0 ? (
                 <div style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontWeight: '600', fontSize: '14px' }}>
                   Loading localized site master directories...
                 </div>
