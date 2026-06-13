@@ -25,8 +25,6 @@ interface ShiftDecision {
 
 export default function AttendanceTile({ guardId, projectId, onDutyStatusChange }: AttendanceTileProps) {
   const [isClockedIn, setIsClockedIn] = useState(false)
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
-  const [shiftStartedAt, setShiftStartedAt] = useState<string | null>(null)
   const [isClockOutSubmitting, setIsClockOutSubmitting] = useState(false)
   const [showCamera, setShowCamera] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
@@ -50,31 +48,6 @@ export default function AttendanceTile({ guardId, projectId, onDutyStatusChange 
     onDutyStatusChange?.(isClockedIn)
   }, [isClockedIn, onDutyStatusChange])
 
-  // TIMER COUNTER MONITOR
-  useEffect(() => {
-    let interval: NodeJS.Timeout
-    if (isClockedIn) {
-      const syncElapsed = () => {
-        if (!shiftStartedAt) {
-          setElapsedSeconds(prev => prev + 1)
-          return
-        }
-
-        const startedAt = new Date(shiftStartedAt).getTime()
-        const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
-        setElapsedSeconds(elapsed)
-      }
-
-      syncElapsed()
-      interval = setInterval(() => {
-        syncElapsed()
-      }, 1000)
-    } else {
-      setElapsedSeconds(0)
-    }
-    return () => clearInterval(interval)
-  }, [isClockedIn, shiftStartedAt])
-
   const restoreActiveShift = useCallback(async () => {
     if (!guardId) return null
 
@@ -95,17 +68,14 @@ export default function AttendanceTile({ guardId, projectId, onDutyStatusChange 
     if (data) {
       const [checkedShift] = await autoCloseExpiredAttendanceRows(supabase, [data])
       if (checkedShift.clock_out_time) {
-        setShiftStartedAt(null)
         setIsClockedIn(false)
         return null
       }
 
-      setShiftStartedAt(checkedShift.clock_in_time)
       setIsClockedIn(true)
       return checkedShift
     }
 
-    setShiftStartedAt(null)
     setIsClockedIn(false)
     return null
   }, [guardId])
@@ -229,7 +199,7 @@ export default function AttendanceTile({ guardId, projectId, onDutyStatusChange 
         }
 
         if (attendanceLog) {
-          setShiftStartedAt(attendanceLog.clock_in_time)
+          setIsClockedIn(true)
         }
       }
 
@@ -271,7 +241,6 @@ export default function AttendanceTile({ guardId, projectId, onDutyStatusChange 
       }
 
       setIsClockedIn(false)
-      setShiftStartedAt(null)
       setShowSignOutConfirm(false)
 
       setToastMessage('Duty shift logged out successfully.')
@@ -294,13 +263,6 @@ export default function AttendanceTile({ guardId, projectId, onDutyStatusChange 
       return () => clearTimeout(timer)
     }
   }, [showCustomToast])
-
-  const formatDutyTally = (totalSecs: number) => {
-    const hrs = Math.floor(totalSecs / 3600)
-    const mins = Math.floor((totalSecs % 3600) / 60)
-    const secs = totalSecs % 60
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-  }
 
   const resolveShiftDecision = async (): Promise<ShiftDecision> => {
     const actualShift = getActualShift(new Date())
@@ -408,32 +370,26 @@ export default function AttendanceTile({ guardId, projectId, onDutyStatusChange 
         
         <div>
           <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#1e3a8a' }}>
-            {isClockedIn ? 'Clocked In' : 'Attendance'}
+            Attendance
           </h3>
-          
+
           {isClockedIn ? (
-            <div style={{ marginTop: '4px' }}>
-              <span style={{ fontSize: '12px', fontWeight: '700', color: '#10b981', fontFamily: 'monospace', display: 'block' }}>
-                ⏱️ {formatDutyTally(elapsedSeconds)}
-              </span>
-              <button 
+            <div style={{ marginTop: '10px' }}>
+              <button
                 onClick={(e) => { e.stopPropagation(); setShowSignOutConfirm(true); }}
-                style={{ marginTop: '8px', backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px rgba(239, 68, 68, 0.15)' }}
+                style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '8px 14px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px rgba(239, 68, 68, 0.15)' }}
               >
                 Sign-Out Shift
               </button>
             </div>
           ) : (
-            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-              <p style={{ margin: 0, fontSize: '11px', color: '#64748b', fontWeight: '500', lineHeight: '1.3' }}>
-                Sign-In Shift
-              </p>
+            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); startCameraStream(); }}
-                style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '7px 14px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16, 185, 129, 0.15)' }}
+                style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '8px 14px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16, 185, 129, 0.15)' }}
               >
-                Sign In
+                Sign-In Shift
               </button>
             </div>
           )}
