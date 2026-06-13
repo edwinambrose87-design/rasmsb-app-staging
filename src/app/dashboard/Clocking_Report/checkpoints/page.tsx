@@ -21,7 +21,7 @@ export default function QRManagementPage() {
   const [isLoading, setIsLoading] = useState(true)
   
   const [customLogoUrl, setCustomLogoUrl] = useState<string | null>(null)
-  const [fileNameLabel, setFileNameLabel] = useState('No file chosen (Using default RAS text)')
+  const [fileNameLabel, setFileNameLabel] = useState('No file chosen')
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -130,7 +130,7 @@ export default function QRManagementPage() {
     ctx.fillRect(0, 0, 400, 460)
 
     // 2. THE DATA PAYLOAD: Strict production formatting for mobile hardware recognition
-    const scannableDataPayload = `RASMSB|${activeProjectSlug}|${databaseId}`
+    const scannableDataPayload = buildQrPayload(activeProjectSlug, databaseId)
 
     try {
       // 3. Create an off-screen temporary canvas for the pure raw QR matrix blocks
@@ -145,14 +145,12 @@ export default function QRManagementPage() {
       // Draw the mathematical QR matrix onto our master layout card
       ctx.drawImage(qrCanvas, 40, 40, 320, 320)
 
-      // 4. EMBED CENTER BRANDING BADGE
-      const centerX = 200
-      const centerY = 200
-      const badgeSize = 76
-      const logoX = centerX - (badgeSize / 2)
-      const logoY = centerY - (badgeSize / 2)
-
       if (customLogoUrl) {
+        const centerX = 200
+        const centerY = 200
+        const badgeSize = 76
+        const logoX = centerX - (badgeSize / 2)
+        const logoY = centerY - (badgeSize / 2)
         const img = new Image()
         img.src = customLogoUrl
         img.onload = () => {
@@ -161,26 +159,8 @@ export default function QRManagementPage() {
           ctx.drawImage(img, centerX - 32, centerY - 32, 64, 64)
           finalizeAndDownload(canvas, name, sequentialId)
         }
+        img.onerror = () => finalizeAndDownload(canvas, name, sequentialId)
       } else {
-        // Fallback default clean branding badge vector layout
-        ctx.fillStyle = '#ffffff'
-        ctx.fillRect(logoX, logoY, badgeSize, badgeSize)
-
-        ctx.fillStyle = '#1e3a8a'
-        ctx.beginPath()
-        ctx.roundRect(centerX - 32, centerY - 32, 64, 64, 8)
-        ctx.fill()
-
-        ctx.strokeStyle = '#ffffff'
-        ctx.lineWidth = 2
-        ctx.strokeRect(centerX - 27, centerY - 27, 54, 54)
-
-        ctx.fillStyle = '#ffffff'
-        ctx.font = 'bold 18px sans-serif'
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText('RAS', centerX, centerY)
-
         finalizeAndDownload(canvas, name, sequentialId)
       }
     } catch (err) {
@@ -324,13 +304,7 @@ export default function QRManagementPage() {
                         <span style={{ fontSize: '11px', color: '#64748b' }}>Published Setup Date: {formatDisplayDate(cp.created_at)}</span>
                       </div>
 
-                      <div style={{ width: '70px', height: '70px', backgroundColor: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5px', boxSizing: 'border-box', marginRight: '25px' }}>
-                        <div style={{ width: '100%', height: '100%', border: '4px solid black', boxSizing: 'border-box', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px', padding: '1px' }}>
-                          <div style={{ backgroundColor: 'black' }}></div><div style={{ backgroundColor: 'white' }}></div><div style={{ backgroundColor: 'black' }}></div>
-                          <div style={{ backgroundColor: 'white' }}></div><div style={{ backgroundColor: 'black' }}></div><div style={{ backgroundColor: 'white' }}></div>
-                          <div style={{ backgroundColor: 'black' }}></div><div style={{ backgroundColor: 'white' }}></div><div style={{ backgroundColor: 'black' }}></div>
-                        </div>
-                      </div>
+                      <QrPreview payload={buildQrPayload(activeProjectSlug, cp.id)} customLogoUrl={customLogoUrl} />
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <button
@@ -364,6 +338,70 @@ export default function QRManagementPage() {
         </div>
 
       </div>
+    </div>
+  )
+}
+
+function buildQrPayload(projectSlug: string, databaseId: number) {
+  return `RASMSB|${projectSlug}|${databaseId}`
+}
+
+function QrPreview({ payload, customLogoUrl }: { payload: string; customLogoUrl: string | null }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function generatePreview() {
+      try {
+        const canvas = document.createElement('canvas')
+        await QRCode.toCanvas(canvas, payload, {
+          width: 76,
+          margin: 1,
+          errorCorrectionLevel: 'H'
+        })
+
+        const ctx = canvas.getContext('2d')
+        if (ctx && customLogoUrl) {
+          const img = new Image()
+          img.src = customLogoUrl
+          img.onload = () => {
+            if (!isMounted) return
+            const centerX = canvas.width / 2
+            const centerY = canvas.height / 2
+            const badgeSize = 22
+            ctx.fillStyle = '#ffffff'
+            ctx.fillRect(centerX - badgeSize / 2, centerY - badgeSize / 2, badgeSize, badgeSize)
+            ctx.drawImage(img, centerX - 9, centerY - 9, 18, 18)
+            setPreviewUrl(canvas.toDataURL('image/png'))
+          }
+          img.onerror = () => {
+            if (isMounted) setPreviewUrl(canvas.toDataURL('image/png'))
+          }
+          return
+        }
+
+        if (isMounted) setPreviewUrl(canvas.toDataURL('image/png'))
+      } catch (err) {
+        console.error('Failed generating QR preview:', err)
+        if (isMounted) setPreviewUrl(null)
+      }
+    }
+
+    generatePreview()
+
+    return () => {
+      isMounted = false
+    }
+  }, [payload, customLogoUrl])
+
+  return (
+    <div style={{ width: '70px', height: '70px', backgroundColor: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px', boxSizing: 'border-box', marginRight: '25px' }}>
+      {previewUrl ? (
+        <img src={previewUrl} alt="QR preview" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+      ) : (
+        <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: '700' }}>QR</span>
+      )}
     </div>
   )
 }
