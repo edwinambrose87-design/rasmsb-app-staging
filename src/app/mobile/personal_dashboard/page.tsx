@@ -1,6 +1,6 @@
 'use client'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState, Suspense } from 'react'
+import { useCallback, useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import AttendanceTile from './components/AttendanceTile'
 
@@ -22,6 +22,7 @@ function PersonalDashboardContent() {
   const [siteTitle, setSiteTitle] = useState('LOADING ASSIGNED POST...')
   const [projectId, setProjectId] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const [isGuardOnDuty, setIsGuardOnDuty] = useState(false)
 
   const effectiveGuardId = guardId || guardIdFromUrl
   const effectiveProjectId = projectId || projectIdFromUrl
@@ -97,6 +98,15 @@ function PersonalDashboardContent() {
     router.push(`/mobile/${routeTarget}?project_id=${effectiveProjectId || ''}&guard_id=${effectiveGuardId || ''}`)
   }
 
+  const handleDutyStatusChange = useCallback((nextStatus: boolean) => {
+    setIsGuardOnDuty(nextStatus)
+  }, [setIsGuardOnDuty])
+
+  const handleRestrictedTileNavigation = (routeTarget: string) => {
+    if (!isGuardOnDuty) return
+    handleTileNavigation(routeTarget)
+  }
+
   const handleSecureLogout = () => {
     sessionStorage.clear()
     localStorage.removeItem('active_guard_id')
@@ -145,26 +155,14 @@ function PersonalDashboardContent() {
         
         {/* Render child component cleanly checking local state tokens */}
         {effectiveGuardId ? (
-          <AttendanceTile guardId={effectiveGuardId} projectId={effectiveProjectId} />
+          <AttendanceTile guardId={effectiveGuardId} projectId={effectiveProjectId} onDutyStatusChange={handleDutyStatusChange} />
         ) : (
           <div style={{ backgroundColor: '#ffffff', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', border: '1px solid #eef2f6' }}>
             <span style={{ fontSize: '12px', color: '#64748b' }}>Syncing Module...</span>
           </div>
         )}
 
-        {/* TILE 2: START CLOCKING */}
-        <div 
-          onClick={() => handleTileNavigation('clocking_rounds')}
-          style={{ backgroundColor: '#ffffff', border: '1px solid #eef2f6', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}
-        >
-          <img src="https://img.icons8.com/fluent/96/alarm-clock.png" alt="Clocking" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
-          <div>
-            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#1e3a8a' }}>Start Clocking</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#64748b', fontWeight: '500', lineHeight: '1.3' }}>Perform Site QR Patrol Lap</p>
-          </div>
-        </div>
-
-        {/* TILE 3: SITE SOPS */}
+        {/* TILE 2: SITE SOPS */}
         <div 
           onClick={() => handleTileNavigation('sop_handbook')}
           style={{ backgroundColor: '#ffffff', border: '1px solid #eef2f6', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}
@@ -176,15 +174,29 @@ function PersonalDashboardContent() {
           </div>
         </div>
 
+        {/* TILE 3: START CLOCKING */}
+        <div 
+          onClick={() => handleRestrictedTileNavigation('clocking_rounds')}
+          aria-disabled={!isGuardOnDuty}
+          style={{ backgroundColor: isGuardOnDuty ? '#ffffff' : '#f1f5f9', border: isGuardOnDuty ? '1px solid #eef2f6' : '1px solid #e2e8f0', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', cursor: isGuardOnDuty ? 'pointer' : 'not-allowed', boxShadow: isGuardOnDuty ? '0 10px 15px -3px rgba(0,0,0,0.02)' : 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', opacity: isGuardOnDuty ? 1 : 0.58, filter: isGuardOnDuty ? 'none' : 'grayscale(1)' }}
+        >
+          <img src="https://img.icons8.com/fluent/96/alarm-clock.png" alt="Clocking" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
+          <div>
+            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: isGuardOnDuty ? '#1e3a8a' : '#64748b' }}>Start Clocking</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: isGuardOnDuty ? '#64748b' : '#94a3b8', fontWeight: '500', lineHeight: '1.3' }}>Perform Site QR Patrol Lap</p>
+          </div>
+        </div>
+
         {/* TILE 4: EMERGENCY HELPLINES */}
         <div 
-          onClick={() => handleTileNavigation('helplines')}
-          style={{ backgroundColor: '#ffffff', border: '1px solid #eef2f6', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}
+          onClick={() => handleRestrictedTileNavigation('helplines')}
+          aria-disabled={!isGuardOnDuty}
+          style={{ backgroundColor: isGuardOnDuty ? '#ffffff' : '#f1f5f9', border: isGuardOnDuty ? '1px solid #eef2f6' : '1px solid #e2e8f0', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', cursor: isGuardOnDuty ? 'pointer' : 'not-allowed', boxShadow: isGuardOnDuty ? '0 10px 15px -3px rgba(0,0,0,0.02)' : 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', opacity: isGuardOnDuty ? 1 : 0.58, filter: isGuardOnDuty ? 'none' : 'grayscale(1)' }}
         >
           <img src="https://img.icons8.com/fluent/96/phone.png" alt="Emergency" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
           <div>
-            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#1e3a8a' }}>Emergency</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#64748b', fontWeight: '500', lineHeight: '1.3' }}>Direct Dial Post Helplines</p>
+            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: isGuardOnDuty ? '#1e3a8a' : '#64748b' }}>Emergency</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: isGuardOnDuty ? '#64748b' : '#94a3b8', fontWeight: '500', lineHeight: '1.3' }}>Direct Dial Post Helplines</p>
           </div>
         </div>
 

@@ -11,6 +11,7 @@ const supabase = createClient(
 interface AttendanceTileProps {
   guardId: string | null
   projectId: string | null
+  onDutyStatusChange?: (isOnDuty: boolean) => void
 }
 
 type ShiftType = 'DAY' | 'NIGHT'
@@ -22,7 +23,7 @@ interface ShiftDecision {
   shiftExceptionReason: string | null
 }
 
-export default function AttendanceTile({ guardId, projectId }: AttendanceTileProps) {
+export default function AttendanceTile({ guardId, projectId, onDutyStatusChange }: AttendanceTileProps) {
   const [isClockedIn, setIsClockedIn] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [shiftStartedAt, setShiftStartedAt] = useState<string | null>(null)
@@ -44,6 +45,10 @@ export default function AttendanceTile({ guardId, projectId }: AttendanceTilePro
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+
+  useEffect(() => {
+    onDutyStatusChange?.(isClockedIn)
+  }, [isClockedIn, onDutyStatusChange])
 
   // TIMER COUNTER MONITOR
   useEffect(() => {
