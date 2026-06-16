@@ -30,6 +30,7 @@ function PersonalDashboardContent() {
   const effectiveProjectId = projectId || projectIdFromUrl
   const effectiveGuardName = guardNameFromUrl || guardName
   const effectiveSiteTitle = projectNameFromUrl ? projectNameFromUrl.toUpperCase() : (projectIdFromUrl && siteTitle === 'LOADING ASSIGNED POST...' ? 'ASSIGNED POST DUTY' : siteTitle)
+  const canUseDutyRestrictedFeatures = !featureAccess.attendance || isGuardOnDuty
 
   useEffect(() => {
     async function loadFeatureAccess() {
@@ -129,7 +130,7 @@ function PersonalDashboardContent() {
   }, [setIsGuardOnDuty])
 
   const handleRestrictedTileNavigation = (routeTarget: string) => {
-    if (!isGuardOnDuty) return
+    if (!canUseDutyRestrictedFeatures) return
     handleTileNavigation(routeTarget)
   }
 
@@ -202,17 +203,31 @@ function PersonalDashboardContent() {
           </div>
         )}
 
+        {/* TILE 3: JOB DESCRIPTIONS */}
+        {featureAccess.jd && (
+          <div 
+            onClick={() => handleTileNavigation('job_descriptions')}
+            style={{ backgroundColor: '#ffffff', border: '1px solid #eef2f6', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}
+          >
+            <img src="https://img.icons8.com/fluent/96/resume.png" alt="Job Descriptions" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
+            <div>
+              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#1e3a8a' }}>Job Description</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#64748b', fontWeight: '500', lineHeight: '1.3' }}>Read Duty Scope</p>
+            </div>
+          </div>
+        )}
+
         {/* TILE 3: START CLOCKING */}
         {featureAccess.clocking && (
           <div 
             onClick={() => handleRestrictedTileNavigation('clocking_rounds')}
-            aria-disabled={!isGuardOnDuty}
-            style={{ backgroundColor: isGuardOnDuty ? '#ffffff' : '#e8edf4', border: isGuardOnDuty ? '1px solid #eef2f6' : '1px solid #cbd5e1', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', cursor: isGuardOnDuty ? 'pointer' : 'not-allowed', boxShadow: isGuardOnDuty ? '0 10px 15px -3px rgba(0,0,0,0.02)' : '0 8px 14px -8px rgba(15, 23, 42, 0.28)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', opacity: isGuardOnDuty ? 1 : 0.82, filter: isGuardOnDuty ? 'none' : 'grayscale(0.75)' }}
+            aria-disabled={!canUseDutyRestrictedFeatures}
+            style={{ backgroundColor: canUseDutyRestrictedFeatures ? '#ffffff' : '#e8edf4', border: canUseDutyRestrictedFeatures ? '1px solid #eef2f6' : '1px solid #cbd5e1', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', cursor: canUseDutyRestrictedFeatures ? 'pointer' : 'not-allowed', boxShadow: canUseDutyRestrictedFeatures ? '0 10px 15px -3px rgba(0,0,0,0.02)' : '0 8px 14px -8px rgba(15, 23, 42, 0.28)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', opacity: canUseDutyRestrictedFeatures ? 1 : 0.82, filter: canUseDutyRestrictedFeatures ? 'none' : 'grayscale(0.75)' }}
           >
             <img src="https://img.icons8.com/fluent/96/alarm-clock.png" alt="Clocking" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
             <div>
-              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: isGuardOnDuty ? '#1e3a8a' : '#475569' }}>Start Clocking</h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: isGuardOnDuty ? '#64748b' : '#64748b', fontWeight: '500', lineHeight: '1.3' }}>Perform Site QR Patrol Lap</p>
+              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: canUseDutyRestrictedFeatures ? '#1e3a8a' : '#475569' }}>Start Clocking</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: canUseDutyRestrictedFeatures ? '#64748b' : '#64748b', fontWeight: '500', lineHeight: '1.3' }}>Perform Site QR Patrol Lap</p>
             </div>
           </div>
         )}
@@ -221,13 +236,13 @@ function PersonalDashboardContent() {
         {featureAccess.emergency && (
           <div 
             onClick={() => handleRestrictedTileNavigation('helplines')}
-            aria-disabled={!isGuardOnDuty}
-            style={{ backgroundColor: isGuardOnDuty ? '#ffffff' : '#e8edf4', border: isGuardOnDuty ? '1px solid #eef2f6' : '1px solid #cbd5e1', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', cursor: isGuardOnDuty ? 'pointer' : 'not-allowed', boxShadow: isGuardOnDuty ? '0 10px 15px -3px rgba(0,0,0,0.02)' : '0 8px 14px -8px rgba(15, 23, 42, 0.28)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', opacity: isGuardOnDuty ? 1 : 0.82, filter: isGuardOnDuty ? 'none' : 'grayscale(0.75)' }}
+            aria-disabled={!canUseDutyRestrictedFeatures}
+            style={{ backgroundColor: canUseDutyRestrictedFeatures ? '#ffffff' : '#e8edf4', border: canUseDutyRestrictedFeatures ? '1px solid #eef2f6' : '1px solid #cbd5e1', borderRadius: '20px', padding: '24px 12px', textAlign: 'center', cursor: canUseDutyRestrictedFeatures ? 'pointer' : 'not-allowed', boxShadow: canUseDutyRestrictedFeatures ? '0 10px 15px -3px rgba(0,0,0,0.02)' : '0 8px 14px -8px rgba(15, 23, 42, 0.28)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', opacity: canUseDutyRestrictedFeatures ? 1 : 0.82, filter: canUseDutyRestrictedFeatures ? 'none' : 'grayscale(0.75)' }}
           >
             <img src="https://img.icons8.com/fluent/96/phone.png" alt="Emergency" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
             <div>
-              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: isGuardOnDuty ? '#1e3a8a' : '#475569' }}>Emergency</h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: isGuardOnDuty ? '#64748b' : '#64748b', fontWeight: '500', lineHeight: '1.3' }}>Direct Dial Post Helplines</p>
+              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: canUseDutyRestrictedFeatures ? '#1e3a8a' : '#475569' }}>Emergency</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: canUseDutyRestrictedFeatures ? '#64748b' : '#64748b', fontWeight: '500', lineHeight: '1.3' }}>Direct Dial Post Helplines</p>
             </div>
           </div>
         )}

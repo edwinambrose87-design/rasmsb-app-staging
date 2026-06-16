@@ -1,4 +1,4 @@
-export type FeatureKey = 'attendance' | 'clocking' | 'emergency' | 'sop' | 'incident' | 'vms'
+export type FeatureKey = 'attendance' | 'clocking' | 'emergency' | 'sop' | 'jd' | 'incident' | 'vms'
 
 export interface FeatureDefinition {
   key: FeatureKey
@@ -11,6 +11,7 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
   { key: 'clocking', label: 'Start Clocking', description: 'QR patrol clocking rounds and clocking report.' },
   { key: 'emergency', label: 'Emergency Contact', description: 'Site emergency helpline directory.' },
   { key: 'sop', label: 'SOP', description: 'Site standing orders and SOP handbook.' },
+  { key: 'jd', label: 'Job Description', description: 'Site job descriptions and guard duty scopes.' },
   { key: 'incident', label: 'Incident Report', description: 'Incident report workspace.' },
   { key: 'vms', label: 'VMS', description: 'Visitor management module.' }
 ]
