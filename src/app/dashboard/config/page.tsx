@@ -1,9 +1,34 @@
 'use client'
-import { useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { createBrowserClient } from '@supabase/ssr'
+import { useSearchParams } from 'next/navigation'
 import { useBrand } from '@/context/BrandContext'
+import { buildFeatureAccess, DEFAULT_FEATURE_ACCESS, FEATURE_DEFINITIONS, FeatureKey } from '@/lib/featureSettings'
 
-export default function SystemConfigPage() {
+interface ProjectRow {
+  id: string
+  name: string
+  slug: string
+}
+
+function SystemConfigContent() {
   const { themeColor } = useBrand()
+  const searchParams = useSearchParams()
+  const activeProjectSlug = searchParams.get('project')
+  const [projects, setProjects] = useState<ProjectRow[]>([])
+  const [selectedFeatureProjectId, setSelectedFeatureProjectId] = useState('')
+  const [featureAccess, setFeatureAccess] = useState(DEFAULT_FEATURE_ACCESS)
+  const [isFeatureLoading, setIsFeatureLoading] = useState(true)
+  const [savingFeatureKey, setSavingFeatureKey] = useState<FeatureKey | null>(null)
+  const [featureMessage, setFeatureMessage] = useState('')
+
+  const supabase = useMemo(
+    () => createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ),
+    []
+  )
 
   // 1. Critical Incident Escalation (On/Off Toggle State)
   const [isSmsEnabled, setIsSmsEnabled] = useState(true)
@@ -21,6 +46,86 @@ export default function SystemConfigPage() {
     alert('💾 System architecture properties successfully updated across active server runtimes!')
   }
 
+  useEffect(() => {
+    async function loadProjects() {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id, name, slug')
+        .order('name', { ascending: true })
+
+      if (error) {
+        console.error('Failed to load projects for feature controls:', error)
+        setIsFeatureLoading(false)
+        return
+      }
+
+      const rows = data || []
+      setProjects(rows)
+      const projectFromUrl = rows.find((project) => project.slug === activeProjectSlug)
+      const defaultProject = projectFromUrl || rows[0]
+      if (defaultProject) setSelectedFeatureProjectId(defaultProject.id)
+      else setIsFeatureLoading(false)
+    }
+
+    loadProjects()
+  }, [activeProjectSlug, supabase])
+
+  useEffect(() => {
+    async function loadFeatureSettings() {
+      if (!selectedFeatureProjectId) return
+      setIsFeatureLoading(true)
+
+      const { data, error } = await supabase
+        .from('project_feature_settings')
+        .select('feature_key, is_enabled')
+        .eq('project_id', selectedFeatureProjectId)
+
+      if (error) {
+        console.error('Failed to load feature settings:', error)
+        setFeatureAccess(DEFAULT_FEATURE_ACCESS)
+      } else {
+        setFeatureAccess(buildFeatureAccess(data))
+      }
+
+      setIsFeatureLoading(false)
+    }
+
+    loadFeatureSettings()
+  }, [selectedFeatureProjectId, supabase])
+
+  const toggleFeatureAccess = async (featureKey: FeatureKey, nextValue: boolean) => {
+    if (!selectedFeatureProjectId) return
+
+    setSavingFeatureKey(featureKey)
+    setFeatureAccess((current) => ({ ...current, [featureKey]: nextValue }))
+
+    const feature = FEATURE_DEFINITIONS.find((item) => item.key === featureKey)
+    const { error } = await supabase
+      .from('project_feature_settings')
+      .upsert({
+        project_id: selectedFeatureProjectId,
+        feature_key: featureKey,
+        feature_label: feature?.label || featureKey,
+        is_enabled: nextValue
+      }, { onConflict: 'project_id,feature_key' })
+
+    if (error) {
+      console.error('Failed to save feature setting:', error)
+      setFeatureAccess((current) => ({ ...current, [featureKey]: !nextValue }))
+      setFeatureMessage('Feature setting could not be saved. Please try again.')
+    } else {
+      setFeatureMessage(`${feature?.label || featureKey} ${nextValue ? 'enabled' : 'disabled'} for this project.`)
+    }
+
+    setSavingFeatureKey(null)
+  }
+
+  useEffect(() => {
+    if (!featureMessage) return
+    const timer = setTimeout(() => setFeatureMessage(''), 3500)
+    return () => clearTimeout(timer)
+  }, [featureMessage])
+
   // Consistent Global Styling Elements
   const containerStyle = { backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '30px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.02)', marginBottom: '30px' }
   const mainHeaderStyle = { fontSize: '13px', color: themeColor, fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' as const, borderBottom: '2px solid #f1f5f9', paddingBottom: '10px', margin: '0 0 20px 0', display: 'flex', alignItems: 'center', gap: '8px' }
@@ -37,6 +142,98 @@ export default function SystemConfigPage() {
       </div>
 
       <div style={{ maxWidth: '1000px', width: '100%' }}>
+        {/* SECTION: PROJECT FEATURE ACCESS CONTROL */}
+        <div style={containerStyle}>
+          <h2 style={mainHeaderStyle}>Feature Access Control</h2>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: '24px', alignItems: 'start' }}>
+            <div>
+              <label style={labelStyle}>Monitoring Site</label>
+              <select
+                value={selectedFeatureProjectId}
+                onChange={(e) => setSelectedFeatureProjectId(e.target.value)}
+                style={selectStyle}
+                disabled={projects.length === 0}
+              >
+                {projects.length === 0 ? (
+                  <option>No projects found</option>
+                ) : projects.map((project) => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+              </select>
+              <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.5, margin: '12px 0 0 0' }}>
+                Turn features on or off for each project. Disabled features are hidden from the guard mobile app and blocked in the manager menu.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {FEATURE_DEFINITIONS.map((feature) => {
+                const isEnabled = featureAccess[feature.key]
+                const isSaving = savingFeatureKey === feature.key
+                const isDisabled = isFeatureLoading || isSaving || !selectedFeatureProjectId
+
+                return (
+                  <div
+                    key={feature.key}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '18px',
+                      backgroundColor: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '10px',
+                      padding: '14px 16px',
+                      opacity: isFeatureLoading ? 0.65 : 1
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', display: 'block' }}>{feature.label}</span>
+                      <span style={{ fontSize: '12px', color: '#64748b', marginTop: '3px', display: 'block', lineHeight: 1.4 }}>{feature.description}</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => toggleFeatureAccess(feature.key, !isEnabled)}
+                      aria-label={`${isEnabled ? 'Disable' : 'Enable'} ${feature.label}`}
+                      style={{
+                        width: '54px',
+                        height: '30px',
+                        border: 'none',
+                        borderRadius: '999px',
+                        padding: '3px',
+                        backgroundColor: isEnabled ? themeColor : '#cbd5e1',
+                        cursor: isDisabled ? 'not-allowed' : 'pointer',
+                        transition: 'background-color 0.2s ease',
+                        flexShrink: 0
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: 'block',
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '50%',
+                          backgroundColor: '#ffffff',
+                          transform: isEnabled ? 'translateX(24px)' : 'translateX(0)',
+                          transition: 'transform 0.2s ease',
+                          boxShadow: '0 2px 6px rgba(15, 23, 42, 0.18)'
+                        }}
+                      />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {featureMessage && (
+            <div style={{ marginTop: '14px', color: featureMessage.includes('could not') ? '#dc2626' : '#0f766e', fontSize: '12px', fontWeight: '700' }}>
+              {featureMessage}
+            </div>
+          )}
+        </div>
         
         {/* SECTION 1: CRITICAL INCIDENT ESCALATION MATRIX */}
         <div style={containerStyle}>
@@ -146,5 +343,13 @@ export default function SystemConfigPage() {
 
       </div>
     </div>
+  )
+}
+
+export default function SystemConfigPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '40px', color: '#64748b', fontWeight: 700 }}>Loading system configuration...</div>}>
+      <SystemConfigContent />
+    </Suspense>
   )
 }

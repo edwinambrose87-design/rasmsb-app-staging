@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { BrandProvider, useBrand } from '@/context/BrandContext'
 import { ProjectProvider, useProject } from '@/context/ProjectContext'
+import { buildFeatureAccess, DEFAULT_FEATURE_ACCESS, FeatureKey } from '@/lib/featureSettings'
 
 interface ProjectRow {
   id: string
@@ -26,6 +27,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [currentUserName, setCurrentUserName] = useState('Loading...')
   const [currentUserEmail, setCurrentUserEmail] = useState('Loading...')
   const [userInitials, setUserInitials] = useState('..')
+  const [featureAccess, setFeatureAccess] = useState(DEFAULT_FEATURE_ACCESS)
+  const [disabledFeatureMessage, setDisabledFeatureMessage] = useState('')
 
   const [isBrandingLoaded, setIsBrandingLoaded] = useState(false)
   const [isProjectsLoading, setIsProjectsLoading] = useState(true)
@@ -153,18 +156,49 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     router.push('/login?logout=true')
   }
 
+  useEffect(() => {
+    async function loadProjectFeatureAccess() {
+      const activeProject = projectsList.find((project) => project.slug === selectedProject)
+      if (!activeProject) {
+        setFeatureAccess(DEFAULT_FEATURE_ACCESS)
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('project_feature_settings')
+        .select('feature_key, is_enabled')
+        .eq('project_id', activeProject.id)
+
+      if (error) {
+        console.error('Failed to load project feature settings:', error)
+        setFeatureAccess(DEFAULT_FEATURE_ACCESS)
+        return
+      }
+
+      setFeatureAccess(buildFeatureAccess(data))
+    }
+
+    loadProjectFeatureAccess()
+  }, [projectsList, selectedProject, supabase])
+
+  useEffect(() => {
+    if (!disabledFeatureMessage) return
+    const timer = setTimeout(() => setDisabledFeatureMessage(''), 3500)
+    return () => clearTimeout(timer)
+  }, [disabledFeatureMessage])
+
   if (!isBrandingLoaded) {
     return <div style={{ width: '100vw', height: '100vh', backgroundColor: '#f8fafc' }} />
   }
 
   const siteSpecificItems = [
     { name: 'Dashboard', path: '/dashboard', icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1v-2zM5 20a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H6a1 1 0 01-1-1v-2z' },
-    { name: 'Clocking Report', path: '/dashboard/Clocking_Report', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
-    { name: 'Incident Report', path: '/dashboard/incident', icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' },
-    { name: 'Attendance Report', path: '/dashboard/attendance', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-    { name: 'Emergency Contact', path: '/dashboard/emergency', icon: 'M3 5a2 2 0 012-2h3.28a1 1 0 01.94.725l.548 2.2a1 1 0 01-.321.988l-1.305.98a10.582 10.582 0 004.872 4.872l.98-1.305a1 1 0 01.988-.321l2.2.548a1 1 0 01.725.94V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z' },
-    { name: 'SOP', path: '/dashboard/sop', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.168.477 4 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4 1.253' },
-    { name: 'VMS', path: '/dashboard/vms', icon: 'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m22-2v2m-2-7a3 3 0 11-6 0 3 3 0 016 0zM11 7a4 4 0 11-8 0 4 4 0 018 0z' }
+    { name: 'Clocking Report', path: '/dashboard/Clocking_Report', featureKey: 'clocking' as FeatureKey, icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+    { name: 'Incident Report', path: '/dashboard/incident', featureKey: 'incident' as FeatureKey, icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' },
+    { name: 'Attendance Report', path: '/dashboard/attendance', featureKey: 'attendance' as FeatureKey, icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+    { name: 'Emergency Contact', path: '/dashboard/emergency', featureKey: 'emergency' as FeatureKey, icon: 'M3 5a2 2 0 012-2h3.28a1 1 0 01.94.725l.548 2.2a1 1 0 01-.321.988l-1.305.98a10.582 10.582 0 004.872 4.872l.98-1.305a1 1 0 01.988-.321l2.2.548a1 1 0 01.725.94V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z' },
+    { name: 'SOP', path: '/dashboard/sop', featureKey: 'sop' as FeatureKey, icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.168.477 4 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4 1.253' },
+    { name: 'VMS', path: '/dashboard/vms', featureKey: 'vms' as FeatureKey, icon: 'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m22-2v2m-2-7a3 3 0 11-6 0 3 3 0 016 0zM11 7a4 4 0 11-8 0 4 4 0 018 0z' }
   ]
 
   const directoryItems = [
@@ -182,44 +216,56 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     return itemsList.map((item) => {
       const isActive = pathname === item.path
       const pathWithQuery = selectedProject ? `${item.path}?project=${selectedProject}` : item.path
+      const isFeatureDisabled = item.featureKey ? !featureAccess[item.featureKey as FeatureKey] : false
+      const linkContent = (
+        <div 
+          style={{ 
+            display: 'flex',
+            alignItems: 'center',
+            gap: '14px',
+            padding: '11px 16px', 
+            borderRadius: '8px', 
+            backgroundColor: isActive ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
+            color: 'white',
+            opacity: isFeatureDisabled ? 0.35 : (isActive ? 1 : 0.75),
+            cursor: isFeatureDisabled ? 'not-allowed' : 'pointer',
+            fontSize: '14px',
+            marginBottom: '3px',
+            fontWeight: isActive ? '700' : '500',
+            transition: 'all 0.15s ease-in-out',
+            userSelect: 'none'
+          }}
+          onMouseOver={(e) => {
+            if (!isActive && !isFeatureDisabled) {
+              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.06)'
+              e.currentTarget.style.opacity = '1'
+            }
+          }}
+          onMouseOut={(e) => {
+            if (!isActive && !isFeatureDisabled) {
+              e.currentTarget.style.backgroundColor = 'transparent'
+              e.currentTarget.style.opacity = '0.75'
+            }
+          }}
+        >
+          <svg style={{ width: '18px', height: '18px', flexShrink: 0 }} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d={item.icon} />
+          </svg>
+          <span style={{ whiteSpace: 'nowrap' }}>{item.name}</span>
+        </div>
+      )
+
+      if (isFeatureDisabled) {
+        return (
+          <div key={item.path} onClick={() => setDisabledFeatureMessage(`${item.name} is disabled for this project.`)} style={{ textDecoration: 'none', color: 'inherit' }}>
+            {linkContent}
+          </div>
+        )
+      }
 
       return (
         <Link key={item.path} href={pathWithQuery} style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div 
-            style={{ 
-              display: 'flex',
-              alignItems: 'center',
-              gap: '14px',
-              padding: '11px 16px', 
-              borderRadius: '8px', 
-              backgroundColor: isActive ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
-              color: 'white',
-              opacity: isActive ? 1 : 0.75,
-              cursor: 'pointer',
-              fontSize: '14px',
-              marginBottom: '3px',
-              fontWeight: isActive ? '700' : '500',
-              transition: 'all 0.15s ease-in-out',
-              userSelect: 'none'
-            }}
-            onMouseOver={(e) => {
-              if (!isActive) {
-                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.06)'
-                e.currentTarget.style.opacity = '1'
-              }
-            }}
-            onMouseOut={(e) => {
-              if (!isActive) {
-                e.currentTarget.style.backgroundColor = 'transparent'
-                e.currentTarget.style.opacity = '0.75'
-              }
-            }}
-          >
-            <svg style={{ width: '18px', height: '18px', flexShrink: 0 }} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d={item.icon} />
-            </svg>
-            <span style={{ whiteSpace: 'nowrap' }}>{item.name}</span>
-          </div>
+          {linkContent}
         </Link>
       )
     })
@@ -229,6 +275,12 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', backgroundColor: '#f8fafc' }}>
+      {disabledFeatureMessage && (
+        <div style={{ position: 'fixed', top: '22px', right: '28px', zIndex: 999999, backgroundColor: '#0f172a', color: 'white', borderRadius: '12px', padding: '14px 18px', boxShadow: '0 16px 35px rgba(15, 23, 42, 0.25)', fontSize: '13px', fontWeight: '700', maxWidth: '320px' }}>
+          {disabledFeatureMessage}
+        </div>
+      )}
+      
       
       <div style={{ 
         width: '280px', 
