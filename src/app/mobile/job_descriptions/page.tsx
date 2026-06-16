@@ -53,7 +53,7 @@ function MobileJobDescriptionsContent() {
 
       if (error) throw error
 
-      const sitejds = normalizejds((data?.jd_list || []) as JdItem[])
+      const sitejds = normalizejds(data?.jd_list)
       setProjectName(data?.name || 'Site Job Descriptions')
       setjds(sitejds)
       setSelectedLanguages(Object.fromEntries(sitejds.map(jd => [getjdId(jd), 'en'])) as Record<string, LanguageCode>)
@@ -227,14 +227,30 @@ function MobileJobDescriptionsContent() {
   )
 }
 
-function normalizejds(jds: JdItem[]) {
-  return jds
+function normalizejds(jds: unknown) {
+  return coerceJdList(jds)
     .filter(jd => jd && (jd.title || jd.content_en || jd.content_ms || jd.content_ne))
     .map((jd, index) => ({
       ...jd,
       id: getjdId(jd, index),
       title: jd.title || 'Untitled JD'
     }))
+}
+
+function coerceJdList(value: unknown): JdItem[] {
+  if (Array.isArray(value)) return value as JdItem[]
+  if (!value) return []
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed)) return parsed as JdItem[]
+      if (parsed && typeof parsed === 'object') return [parsed as JdItem]
+    } catch {
+      return []
+    }
+  }
+  if (typeof value === 'object') return [value as JdItem]
+  return []
 }
 
 function getDefaultExpandedjdIds(jds: JdItem[]) {

@@ -11,7 +11,7 @@ interface ProjectRow {
   id: string
   name: string
   slug: string
-  jd_list: JdItem[]
+  jd_list: unknown
 }
 
 interface JdItem {
@@ -96,7 +96,7 @@ function JDContent() {
       }
 
       const project = data as ProjectRow
-      const normalizedjds = normalizejds(project.jd_list || [])
+      const normalizedjds = normalizejds(project.jd_list)
       if (requestId !== requestSequenceRef.current) return
       setActiveProject(project)
       setjds(normalizedjds)
@@ -326,8 +326,24 @@ function JDContent() {
   )
 }
 
-function normalizejds(jds: JdItem[]) {
-  return jds.map(cleanjd)
+function normalizejds(jds: unknown) {
+  return coerceJdList(jds).map(cleanjd)
+}
+
+function coerceJdList(value: unknown): JdItem[] {
+  if (Array.isArray(value)) return value as JdItem[]
+  if (!value) return []
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed)) return parsed as JdItem[]
+      if (parsed && typeof parsed === 'object') return [parsed as JdItem]
+    } catch {
+      return []
+    }
+  }
+  if (typeof value === 'object') return [value as JdItem]
+  return []
 }
 
 function getDefaultExpandedjdIds(jds: JdItem[]) {
